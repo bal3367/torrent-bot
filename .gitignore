@@ -1,0 +1,7 @@
+.env
+downloads/
+*.log
+__pycache__/
+*.pyc
+venv/
+*.torrent
