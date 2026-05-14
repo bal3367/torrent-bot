@@ -82,17 +82,27 @@ MENU_TEXTS = {"📥 Tambah Torrent", "📋 List Download", "📁 Browse File", "
 async def handle_reply_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == "📥 Tambah Torrent":
-        await update.message.reply_text(
-            "Cara tambah torrent:\n\n"
-            "1. Kirim: /add <magnet link atau URL .torrent>\n"
-            "2. Atau kirim file .torrent langsung ke chat ini"
-        )
+        ctx.user_data["waiting_for_link"] = True
+        await update.message.reply_text("Kirim magnet link atau URL .torrent:")
     elif text == "📋 List Download":
         await cmd_list(update, ctx)
     elif text == "📁 Browse File":
         await cmd_files(update, ctx)
     elif text == "💾 Storage":
         await cmd_storage(update, ctx)
+
+
+@auth
+async def handle_torrent_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not ctx.user_data.get("waiting_for_link"):
+        return
+    ctx.user_data["waiting_for_link"] = False
+    uri = update.message.text.strip()
+    try:
+        gid = a2.add_magnet(uri)
+        await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
+    except Exception as e:
+        await update.message.reply_text(f"Gagal: {e}")
 
 
 async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -113,7 +123,7 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif action == "list":
         downloads = a2.list_downloads()
-        active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
+        active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
         if not active:
             await query.edit_message_text(
                 "Tidak ada download aktif.",
@@ -191,7 +201,7 @@ async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Refresh list setelah aksi
     downloads = a2.list_downloads()
-    active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
+    active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
     if not active:
         await query.edit_message_text(
             "Tidak ada download aktif.",
@@ -252,7 +262,7 @@ async def handle_document(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 @auth
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     downloads = a2.list_downloads()
-    active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
+    active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
     if not active:
         await update.message.reply_text("Tidak ada download aktif.")
         return
@@ -447,6 +457,10 @@ def main():
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(f"^({'|'.join(MENU_TEXTS)})$"),
         handle_reply_buttons,
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_torrent_link,
     ))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(cb_mainmenu, pattern=r"^menu:"))
