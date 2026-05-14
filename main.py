@@ -43,7 +43,7 @@ def reply_keyboard():
     return ReplyKeyboardMarkup([
         ["📥 Tambah Torrent", "📋 List Download"],
         ["📁 Browse File",    "💾 Storage"],
-    ], resize_keyboard=True, persistent=True)
+    ], resize_keyboard=True)
 
 
 def main_menu_keyboard():
