@@ -17,4 +17,5 @@ async def start_file_server():
     site = web.TCPSite(runner, "0.0.0.0", FILE_SERVER_PORT)
     await site.start()
     print(f"File server running on port {FILE_SERVER_PORT}")
-    return runner
+    while True:
+        await asyncio.sleep(3600)

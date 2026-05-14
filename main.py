@@ -39,22 +39,156 @@ def auth(func):
     return wrapper
 
 
+def main_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📥 Tambah Torrent", callback_data="menu:add")],
+        [InlineKeyboardButton("📋 List Download", callback_data="menu:list")],
+        [InlineKeyboardButton("📁 Browse File", callback_data="menu:files")],
+        [InlineKeyboardButton("💾 Storage", callback_data="menu:storage")],
+    ])
+
+
+def back_button():
+    return [[InlineKeyboardButton("← Menu", callback_data="menu:main")]]
+
+
 @auth
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "Torrent Bot siap!\n\n"
-        "/add <magnet/url> — tambah torrent\n"
-        "  kirim file .torrent langsung ke chat\n"
-        "/list — lihat download aktif\n"
-        "/pause <GID> — pause download\n"
-        "/resume <GID> — resume download\n"
-        "/cancel <GID> — batalkan download\n"
-        "/files — lihat file tersimpan\n"
-        "/link <nama_file> — buat link download\n"
-        "/delete <nama_file> — hapus file\n"
-        "/storage — cek disk usage"
+    await update.message.reply_text(
+        "Torrent Bot siap! Pilih menu:",
+        reply_markup=main_menu_keyboard(),
     )
-    await update.message.reply_text(text)
+
+
+@auth
+async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Menu utama:",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":", 1)[1]
+
+    if action == "main":
+        await query.edit_message_text("Menu utama:", reply_markup=main_menu_keyboard())
+
+    elif action == "add":
+        await query.edit_message_text(
+            "Cara tambah torrent:\n\n"
+            "1. Kirim pesan: /add <magnet link atau URL .torrent>\n"
+            "2. Atau kirim file .torrent langsung ke chat ini",
+            reply_markup=InlineKeyboardMarkup(back_button()),
+        )
+
+    elif action == "list":
+        downloads = a2.list_downloads()
+        active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
+        if not active:
+            await query.edit_message_text(
+                "Tidak ada download aktif.",
+                reply_markup=InlineKeyboardMarkup(back_button()),
+            )
+            return
+        buttons = []
+        lines = []
+        for d in active:
+            name = (d.name or d.gid)[:35]
+            pct = d.progress if hasattr(d, "progress") else 0
+            speed = a2.format_speed(d.download_speed) if d.status == "active" else d.status
+            lines.append(f"{name}\n  {pct:.1f}% | {speed}")
+            buttons.append([
+                InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
+                InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
+                InlineKeyboardButton("❌", callback_data=f"dlaction:cancel:{d.gid}"),
+                InlineKeyboardButton(name[:20], callback_data=f"dlaction:noop:{d.gid}"),
+            ])
+        buttons += back_button()
+        await query.edit_message_text(
+            "\n\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    elif action == "files":
+        p = Path(DOWNLOAD_DIR)
+        entries = sorted(p.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True) if p.exists() else []
+        if not entries:
+            await query.edit_message_text(
+                "Folder download kosong.",
+                reply_markup=InlineKeyboardMarkup(back_button()),
+            )
+            return
+        buttons = []
+        for e in entries[:20]:
+            size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
+            label = f"{'[D] ' if e.is_dir() else ''}{e.name[:32]} ({size})"
+            buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{e.name}")])
+        buttons += back_button()
+        await query.edit_message_text(
+            "File tersimpan (20 terbaru):",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    elif action == "storage":
+        usage = shutil.disk_usage(DOWNLOAD_DIR)
+        pct = (usage.used / usage.total) * 100
+        text = (
+            f"Disk usage: {pct:.1f}%\n"
+            f"Terpakai: {a2.format_size(usage.used)}\n"
+            f"Bebas: {a2.format_size(usage.free)}\n"
+            f"Total: {a2.format_size(usage.total)}"
+        )
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(back_button()))
+
+
+async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":", 2)
+    action, gid = parts[1], parts[2]
+
+    if action == "pause":
+        ok = a2.pause_download(gid)
+        await query.answer("Di-pause." if ok else "Gagal.", show_alert=True)
+    elif action == "resume":
+        ok = a2.resume_download(gid)
+        await query.answer("Dilanjutkan." if ok else "Gagal.", show_alert=True)
+    elif action == "cancel":
+        ok = a2.cancel_download(gid)
+        await query.answer("Dibatalkan." if ok else "Gagal.", show_alert=True)
+    elif action == "noop":
+        return
+
+    # Refresh list setelah aksi
+    downloads = a2.list_downloads()
+    active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
+    if not active:
+        await query.edit_message_text(
+            "Tidak ada download aktif.",
+            reply_markup=InlineKeyboardMarkup(back_button()),
+        )
+        return
+    buttons = []
+    lines = []
+    for d in active:
+        name = (d.name or d.gid)[:35]
+        pct = d.progress if hasattr(d, "progress") else 0
+        speed = a2.format_speed(d.download_speed) if d.status == "active" else d.status
+        lines.append(f"{name}\n  {pct:.1f}% | {speed}")
+        buttons.append([
+            InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
+            InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
+            InlineKeyboardButton("❌", callback_data=f"dlaction:cancel:{d.gid}"),
+            InlineKeyboardButton(name[:20], callback_data=f"dlaction:noop:{d.gid}"),
+        ])
+    buttons += back_button()
+    await query.edit_message_text(
+        "\n\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
 
 @auth
@@ -160,9 +294,11 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
     buttons = [
         [
-            InlineKeyboardButton("Link download", url=link),
-            InlineKeyboardButton("Hapus", callback_data=f"confirmdelete:{filename}"),
-        ]
+            InlineKeyboardButton("⬇ Link Download", url=link),
+            InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}"),
+        ],
+        [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
+        back_button()[0],
     ]
     await query.edit_message_text(
         f"Nama: {filename}\nUkuran: {size}\nLink: {link}",
@@ -196,7 +332,10 @@ async def cb_dodelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             shutil.rmtree(path)
         else:
             path.unlink()
-        await query.edit_message_text(f"'{filename}' berhasil dihapus.")
+        await query.edit_message_text(
+            f"'{filename}' berhasil dihapus.",
+            reply_markup=InlineKeyboardMarkup(back_button()),
+        )
     except Exception as e:
         await query.edit_message_text(f"Gagal hapus: {e}")
 
@@ -204,7 +343,10 @@ async def cb_dodelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_canceldelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Penghapusan dibatalkan.")
+    await query.edit_message_text(
+        "Penghapusan dibatalkan.",
+        reply_markup=InlineKeyboardMarkup(back_button()),
+    )
 
 
 @auth
@@ -265,6 +407,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("add", cmd_add))
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("pause", cmd_pause))
@@ -275,6 +418,8 @@ def main():
     app.add_handler(CommandHandler("delete", cmd_delete))
     app.add_handler(CommandHandler("storage", cmd_storage))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(CallbackQueryHandler(cb_mainmenu, pattern=r"^menu:"))
+    app.add_handler(CallbackQueryHandler(cb_dlaction, pattern=r"^dlaction:"))
     app.add_handler(CallbackQueryHandler(cb_fileinfo, pattern=r"^fileinfo:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
