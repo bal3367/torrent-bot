@@ -6,7 +6,7 @@ import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -39,6 +39,13 @@ def auth(func):
     return wrapper
 
 
+def reply_keyboard():
+    return ReplyKeyboardMarkup([
+        ["📥 Tambah Torrent", "📋 List Download"],
+        ["📁 Browse File",    "💾 Storage"],
+    ], resize_keyboard=True, persistent=True)
+
+
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📥 Tambah Torrent", callback_data="menu:add")],
@@ -56,7 +63,7 @@ def back_button():
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Torrent Bot siap! Pilih menu:",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=reply_keyboard(),
     )
 
 
@@ -64,8 +71,28 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Menu utama:",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=reply_keyboard(),
     )
+
+
+MENU_TEXTS = {"📥 Tambah Torrent", "📋 List Download", "📁 Browse File", "💾 Storage"}
+
+
+@auth
+async def handle_reply_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "📥 Tambah Torrent":
+        await update.message.reply_text(
+            "Cara tambah torrent:\n\n"
+            "1. Kirim: /add <magnet link atau URL .torrent>\n"
+            "2. Atau kirim file .torrent langsung ke chat ini"
+        )
+    elif text == "📋 List Download":
+        await cmd_list(update, ctx)
+    elif text == "📁 Browse File":
+        await cmd_files(update, ctx)
+    elif text == "💾 Storage":
+        await cmd_storage(update, ctx)
 
 
 async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -417,6 +444,10 @@ def main():
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(CommandHandler("delete", cmd_delete))
     app.add_handler(CommandHandler("storage", cmd_storage))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(f"^({'|'.join(MENU_TEXTS)})$"),
+        handle_reply_buttons,
+    ))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(cb_mainmenu, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(cb_dlaction, pattern=r"^dlaction:"))
