@@ -39,7 +39,7 @@ def _check_downloads(bot: Bot):
     for dl in downloads:
         if dl.gid in _notified_gids:
             continue
-        if dl.status == "complete":
+        if dl.status == "complete" and not (dl.name or "").startswith("[METADATA]"):
             _notified_gids.add(dl.gid)
             name = dl.name or dl.gid
             size = format_size(dl.total_length)
