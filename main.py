@@ -344,18 +344,20 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     label_link = "🌐 Download (CF)" if tun.tunnel_url else "⬇ HTTP Link"
 
     if path.is_dir():
-        # Folder: cek apakah zip sudah ada
         zip_name = filename + ".zip"
         zip_path = Path(DOWNLOAD_DIR) / zip_name
         zip_exists = zip_path.exists()
         zip_link = f"{base_url}/{urllib.parse.quote(zip_name)}"
         link = f"{base_url}/{urllib.parse.quote(filename)}"
+        scp_flag = "-r"  # rekursif untuk folder
+        scp_target = f"{DOWNLOAD_DIR}/{filename}/"
         buttons = [
             [InlineKeyboardButton(label_link, url=link)],
             [InlineKeyboardButton(
                 f"📦 {'Download ZIP' if zip_exists else 'Buat ZIP'} ({size})",
                 callback_data=f"makezip:{filename}" if not zip_exists else f"zipready:{filename}",
             )],
+            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{filename}")],
             [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{filename}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
@@ -369,6 +371,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(label_link, url=link),
                 InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
             ],
+            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{filename}")],
             [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
@@ -434,6 +437,45 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(msg, parse_mode="Markdown")
 
 
+async def cb_scpcmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Kirim SCP command siap pakai untuk Windows PowerShell / Linux terminal."""
+    query = update.callback_query
+    await query.answer()
+    filename = query.data.split(":", 1)[1]
+    path = Path(DOWNLOAD_DIR) / filename
+
+    # Cek apakah zip sudah ada, prioritaskan zip
+    zip_name = filename + ".zip"
+    zip_path = Path(DOWNLOAD_DIR) / zip_name
+    if zip_path.exists():
+        target = f"{DOWNLOAD_DIR}/{zip_name}"
+        flag = ""
+        display_name = zip_name
+    elif path.is_dir():
+        target = f"{DOWNLOAD_DIR}/{filename}/"
+        flag = "-r "
+        display_name = filename + "/ (semua file)"
+    else:
+        target = f"{DOWNLOAD_DIR}/{filename}"
+        flag = ""
+        display_name = filename
+
+    cmd_win = f'scp {flag}ubuntu@{VPS_IP}:"{target}" "C:\\Users\\YourName\\Downloads\\"'
+    cmd_mac = f"scp {flag}ubuntu@{VPS_IP}:'{target}' ~/Downloads/"
+
+    await query.message.reply_text(
+        f"📋 *SCP Command — Download Langsung (Speed Penuh)*\n"
+        f"File: `{display_name}`\n\n"
+        f"*Windows PowerShell:*\n"
+        f"`{cmd_win}`\n\n"
+        f"*Mac / Linux Terminal:*\n"
+        f"`{cmd_mac}`\n\n"
+        f"💡 Ganti `YourName` sesuai username Windows kamu.\n"
+        f"Port 22 SSH selalu terbuka — works di semua VPS provider.",
+        parse_mode="Markdown",
+    )
+
+
 def _create_zip_sync(src_path: Path, zip_path: Path):
     """Buat zip dari folder (sync, dijalankan di thread pool)."""
     import zipfile
@@ -488,11 +530,13 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     import urllib.parse
     base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     link = f"{base_url}/{urllib.parse.quote(zip_name)}"
+    scp_win = f'scp ubuntu@{VPS_IP}:"{DOWNLOAD_DIR}/{zip_name}" "C:\\Users\\YourName\\Downloads\\"'
     await msg.edit_text(
         f"✅ *ZIP selesai!*\n"
-        f"📦 {zip_name}\n"
+        f"📦 `{zip_name}`\n"
         f"Ukuran: {zip_size}\n\n"
-        f"🌐 *Download sekarang:*\n{link}",
+        f"🌐 *Browser (CF Tunnel):*\n{link}\n\n"
+        f"⚡ *PowerShell (speed penuh):*\n`{scp_win}`",
         parse_mode="Markdown",
     )
 
@@ -667,6 +711,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_sendtg, pattern=r"^sendtg:"))
     app.add_handler(CallbackQueryHandler(cb_makezip, pattern=r"^makezip:"))
     app.add_handler(CallbackQueryHandler(cb_zipready, pattern=r"^zipready:"))
+    app.add_handler(CallbackQueryHandler(cb_scpcmd, pattern=r"^scpcmd:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
