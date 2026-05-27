@@ -31,6 +31,36 @@ VPS_IP = os.getenv("VPS_IP", "localhost")
 FILE_SERVER_PORT = os.getenv("FILE_SERVER_PORT", "8080")
 
 
+def _update_download_dir(new_path: str) -> tuple[bool, str]:
+    """Ganti DOWNLOAD_DIR: buat folder, update .env, update aria2c, update global.
+    Returns (success, error_message).
+    """
+    global DOWNLOAD_DIR
+    new_path = new_path.strip().rstrip("/")
+    if not new_path or new_path in ("/", "~", "."):
+        return False, "Path tidak valid."
+    p = Path(new_path)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return False, f"Gagal buat folder: {e}"
+    # Update .env
+    import re as _re
+    env_file = Path(__file__).parent / ".env"
+    if env_file.exists():
+        content = env_file.read_text()
+        if "DOWNLOAD_DIR=" in content:
+            content = _re.sub(r"^DOWNLOAD_DIR=.*$", f"DOWNLOAD_DIR={new_path}", content, flags=_re.MULTILINE)
+        else:
+            content += f"\nDOWNLOAD_DIR={new_path}\n"
+        env_file.write_text(content)
+    # Update aria2c live
+    a2.set_download_dir(new_path)
+    # Update runtime global
+    DOWNLOAD_DIR = new_path
+    return True, ""
+
+
 def auth(func):
     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if update.effective_chat.id != ALLOWED_CHAT_ID:
@@ -125,6 +155,18 @@ async def handle_text_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
+    elif ctx.user_data.get("waiting_for_setdir"):
+        ctx.user_data["waiting_for_setdir"] = False
+        new_path = update.message.text.strip()
+        ok, err = _update_download_dir(new_path)
+        if ok:
+            await update.message.reply_text(
+                f"✅ Folder download diubah ke:\n`{DOWNLOAD_DIR}`\n\n"
+                f"Download berikutnya akan masuk ke folder ini.",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(f"❌ Gagal: {err}")
     elif ctx.user_data.get("waiting_for_link"):
         ctx.user_data["waiting_for_link"] = False
         uri = update.message.text.strip()
@@ -133,6 +175,21 @@ async def handle_text_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
         except Exception as e:
             await update.message.reply_text(f"Gagal: {e}")
+
+
+async def cb_setdir(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Tampilkan folder saat ini dan minta input path baru."""
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data["waiting_for_setdir"] = True
+    await query.message.reply_text(
+        f"📁 Folder download saat ini:\n`{DOWNLOAD_DIR}`\n\n"
+        f"Ketik path folder baru yang kamu mau, contoh:\n"
+        f"`/mnt/data/downloads`\n"
+        f"`/home/ubuntu/files`\n\n"
+        f"Folder akan otomatis dibuat jika belum ada.",
+        parse_mode="Markdown",
+    )
 
 
 async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -183,11 +240,13 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif action == "files":
         p = Path(DOWNLOAD_DIR)
+        setdir_row = [InlineKeyboardButton("⚙️ Set Folder", callback_data="setdir")]
         entries = sorted(p.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True) if p.exists() else []
         if not entries:
             await query.edit_message_text(
-                "Folder download kosong.",
-                reply_markup=InlineKeyboardMarkup(back_button()),
+                f"📁 Folder download kosong.\n`{DOWNLOAD_DIR}`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([setdir_row] + back_button()),
             )
             return
         buttons = []
@@ -195,9 +254,11 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
             label = f"{'[D] ' if e.is_dir() else ''}{e.name[:32]} ({size})"
             buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{e.name}")])
+        buttons.append(setdir_row)
         buttons += back_button()
         await query.edit_message_text(
-            "File tersimpan (20 terbaru):",
+            f"📁 `{DOWNLOAD_DIR}` (20 terbaru):",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
@@ -339,20 +400,26 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 @auth
-@auth
 async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = Path(DOWNLOAD_DIR)
-    if not p.exists() or not any(p.iterdir()):
-        await update.message.reply_text("Folder download kosong.")
+    setdir_row = [InlineKeyboardButton("⚙️ Set Folder", callback_data="setdir")]
+    entries = sorted(p.iterdir(), key=lambda e: e.stat().st_mtime, reverse=True) if p.exists() else []
+    if not entries:
+        await update.message.reply_text(
+            f"📁 Folder download kosong.\n`{DOWNLOAD_DIR}`",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([setdir_row]),
+        )
         return
-    entries = sorted(p.iterdir(), key=lambda e: e.stat().st_mtime, reverse=True)
     buttons = []
     for e in entries[:20]:
         size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
-        label = f"{'[D]' if e.is_dir() else ''}{e.name[:35]} ({size})"
+        label = f"{'[D] ' if e.is_dir() else ''}{e.name[:35]} ({size})"
         buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{e.name}")])
+    buttons.append(setdir_row)
     await update.message.reply_text(
-        "File tersimpan (20 terbaru):",
+        f"📁 `{DOWNLOAD_DIR}` (20 terbaru):",
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
@@ -901,6 +968,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_makezip, pattern=r"^makezip:"))
     app.add_handler(CallbackQueryHandler(cb_zipready, pattern=r"^zipready:"))
     app.add_handler(CallbackQueryHandler(cb_scpcmd, pattern=r"^scpcmd:"))
+    app.add_handler(CallbackQueryHandler(cb_setdir, pattern=r"^setdir$"))
     app.add_handler(CommandHandler("servers", cmd_servers))
     app.add_handler(CallbackQueryHandler(cb_srv, pattern=r"^srv:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))

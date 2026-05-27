@@ -75,6 +75,15 @@ def cancel_download(gid: str) -> bool:
     return False
 
 
+def set_download_dir(new_dir: str) -> bool:
+    """Ubah folder download aria2c via RPC tanpa restart."""
+    try:
+        get_client().client.call("aria2.changeGlobalOption", {"dir": new_dir})
+        return True
+    except Exception:
+        return False
+
+
 def format_size(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024:
