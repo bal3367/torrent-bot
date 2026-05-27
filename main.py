@@ -79,6 +79,27 @@ def reply_keyboard():
     ], resize_keyboard=True)
 
 
+# ── File ref registry ──────────────────────────────────────────────────────────
+# Telegram callback_data max 64 bytes. Nama file bisa panjang → pakai short ID.
+_file_refs: dict[str, str] = {}   # "f0", "f1", ... -> filename (bukan full path)
+
+
+def _ref(filename: str) -> str:
+    """Daftar filename, return short key yang aman untuk callback_data."""
+    # Cari key yang sudah ada untuk filename ini
+    for k, v in _file_refs.items():
+        if v == filename:
+            return k
+    key = f"f{len(_file_refs)}"
+    _file_refs[key] = filename
+    return key
+
+
+def _deref(key: str) -> str | None:
+    """Kembalikan filename dari key, atau None kalau tidak ketemu."""
+    return _file_refs.get(key)
+
+
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📥 Tambah Torrent", callback_data="menu:add")],
@@ -253,7 +274,7 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         for e in entries[:20]:
             size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
             label = f"{'[D] ' if e.is_dir() else ''}{e.name[:32]} ({size})"
-            buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{e.name}")])
+            buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{_ref(e.name)}")])
         buttons.append(setdir_row)
         buttons += back_button()
         await query.edit_message_text(
@@ -415,7 +436,7 @@ async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for e in entries[:20]:
         size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
         label = f"{'[D] ' if e.is_dir() else ''}{e.name[:35]} ({size})"
-        buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{e.name}")])
+        buttons.append([InlineKeyboardButton(label, callback_data=f"fileinfo:{_ref(e.name)}")])
     buttons.append(setdir_row)
     await update.message.reply_text(
         f"📁 `{DOWNLOAD_DIR}` (20 terbaru):",
@@ -427,7 +448,9 @@ async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    # key bisa berupa short ref (f0, f1, ...) atau nama langsung (backwards compat)
+    filename = _deref(key) or key
     path = Path(DOWNLOAD_DIR) / filename
     if not path.exists():
         await query.edit_message_text("File tidak ditemukan.")
