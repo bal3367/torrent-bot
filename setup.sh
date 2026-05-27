@@ -38,15 +38,15 @@ if [ ! -f .env ]; then
         echo "  VPS IP auto-detected: $PUBLIC_IP ✅"
     fi
 
+    # Auto-set SERVER_LABEL dari hostname jika belum ada
+    HOSTNAME_VAL=$(hostname 2>/dev/null || echo "VPS")
+    sed -i "s/SERVER_LABEL=VPS-Main/SERVER_LABEL=$HOSTNAME_VAL/" .env
+    echo "  SERVER_LABEL auto-set: $HOSTNAME_VAL ✅"
     echo ""
     echo "========================================"
-    echo "  ⚠️  Satu langkah lagi:"
-    echo "  Edit .env dan isi:"
-    echo "    BOT_TOKEN=<token dari @BotFather>"
-    echo "    SERVER_LABEL=<nama VPS ini, misal: VPS-SG>"
+    echo "  ✅ Setup selesai!"
+    echo "  Jalankan: ./start.sh"
     echo "========================================"
-    echo ""
-    echo "Setelah edit .env, jalankan: ./start.sh"
 else
     echo ".env sudah ada ✅"
     echo ""
