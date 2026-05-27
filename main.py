@@ -339,23 +339,46 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
     size = a2.format_size(size_bytes)
-    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     import urllib.parse
-    link = f"{base_url}/{urllib.parse.quote(filename)}"
+    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     label_link = "🌐 Download (CF)" if tun.tunnel_url else "⬇ HTTP Link"
-    buttons = [
-        [
-            InlineKeyboardButton(label_link, url=link),
-            InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
-        ],
-        [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
-        [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
-        back_button()[0],
-    ]
+
+    if path.is_dir():
+        # Folder: cek apakah zip sudah ada
+        zip_name = filename + ".zip"
+        zip_path = Path(DOWNLOAD_DIR) / zip_name
+        zip_exists = zip_path.exists()
+        zip_link = f"{base_url}/{urllib.parse.quote(zip_name)}"
+        link = f"{base_url}/{urllib.parse.quote(filename)}"
+        buttons = [
+            [InlineKeyboardButton(label_link, url=link)],
+            [InlineKeyboardButton(
+                f"📦 {'Download ZIP' if zip_exists else 'Buat ZIP'} ({size})",
+                callback_data=f"makezip:{filename}" if not zip_exists else f"zipready:{filename}",
+            )],
+            [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{filename}")],
+            [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
+        ]
+        info = f"📁 *{filename}*\nUkuran: {size} ({sum(1 for _ in path.rglob('*') if _.is_file())} file)"
+        if zip_exists:
+            info += f"\n✅ ZIP sudah ada → [download]({zip_link})"
+    else:
+        link = f"{base_url}/{urllib.parse.quote(filename)}"
+        buttons = [
+            [
+                InlineKeyboardButton(label_link, url=link),
+                InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
+            ],
+            [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
+            [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
+        ]
+        info = f"📄 *{filename}*\nUkuran: {size}\n🔗 `{link}`"
+
     await query.edit_message_text(
-        f"📄 *{filename}*\nUkuran: {size}\n🔗 `{link}`",
+        info,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons),
+        disable_web_page_preview=True,
     )
 
 
@@ -409,6 +432,86 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"*Cara 2 — SCP* (pakai terminal/WinSCP):\n`{scp_cmd}`"
             )
         await query.message.reply_text(msg, parse_mode="Markdown")
+
+
+def _create_zip_sync(src_path: Path, zip_path: Path):
+    """Buat zip dari folder (sync, dijalankan di thread pool)."""
+    import zipfile
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for file in src_path.rglob("*"):
+            if file.is_file():
+                zf.write(file, file.relative_to(src_path.parent))
+
+
+async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Mulai buat ZIP dari folder, kirim notifikasi saat selesai."""
+    query = update.callback_query
+    await query.answer()
+    filename = query.data.split(":", 1)[1]
+    src_path = Path(DOWNLOAD_DIR) / filename
+    zip_name = filename + ".zip"
+    zip_path = Path(DOWNLOAD_DIR) / zip_name
+
+    if not src_path.exists():
+        await query.message.reply_text("Folder tidak ditemukan.")
+        return
+
+    if zip_path.exists():
+        # Sudah ada, langsung kirim link
+        import urllib.parse
+        base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+        link = f"{base_url}/{urllib.parse.quote(zip_name)}"
+        await query.message.reply_text(
+            f"✅ ZIP sudah ada!\n🌐 Download: {link}", parse_mode="Markdown"
+        )
+        return
+
+    # Hitung ukuran & estimasi waktu
+    total = sum(f.stat().st_size for f in src_path.rglob("*") if f.is_file())
+    msg = await query.message.reply_text(
+        f"⏳ *Membuat ZIP...*\n"
+        f"📦 {filename}\n"
+        f"Ukuran: {a2.format_size(total)}\n\n"
+        f"Mohon tunggu, ini mungkin butuh beberapa menit...",
+        parse_mode="Markdown",
+    )
+
+    # Jalankan zip di thread pool agar tidak block bot
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, _create_zip_sync, src_path, zip_path)
+    except Exception as e:
+        await msg.edit_text(f"❌ Gagal buat ZIP: {e}")
+        return
+
+    zip_size = a2.format_size(zip_path.stat().st_size)
+    import urllib.parse
+    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    link = f"{base_url}/{urllib.parse.quote(zip_name)}"
+    await msg.edit_text(
+        f"✅ *ZIP selesai!*\n"
+        f"📦 {zip_name}\n"
+        f"Ukuran: {zip_size}\n\n"
+        f"🌐 *Download sekarang:*\n{link}",
+        parse_mode="Markdown",
+    )
+
+
+async def cb_zipready(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """ZIP sudah ada — langsung kirim link."""
+    query = update.callback_query
+    await query.answer()
+    filename = query.data.split(":", 1)[1]
+    zip_name = filename + ".zip"
+    zip_path = Path(DOWNLOAD_DIR) / zip_name
+    import urllib.parse
+    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    link = f"{base_url}/{urllib.parse.quote(zip_name)}"
+    size = a2.format_size(zip_path.stat().st_size) if zip_path.exists() else "?"
+    await query.message.reply_text(
+        f"📦 *{zip_name}*\nUkuran: {size}\n\n🌐 Download: {link}",
+        parse_mode="Markdown",
+    )
 
 
 async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -562,6 +665,8 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_dlaction, pattern=r"^dlaction:"))
     app.add_handler(CallbackQueryHandler(cb_fileinfo, pattern=r"^fileinfo:"))
     app.add_handler(CallbackQueryHandler(cb_sendtg, pattern=r"^sendtg:"))
+    app.add_handler(CallbackQueryHandler(cb_makezip, pattern=r"^makezip:"))
+    app.add_handler(CallbackQueryHandler(cb_zipready, pattern=r"^zipready:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
