@@ -10,6 +10,12 @@ git clone https://github.com/bal3367/torrent-bot.git ~/torrent_bot && ~/torrent_
 
 Setelah install selesai → cek Telegram, bot langsung kirim notifikasi online + link download.
 
+## 🔄 Update ke versi terbaru
+
+```bash
+cd ~/torrent_bot && make update
+```
+
 ## 🛠 Commands
 
 ```bash

@@ -339,11 +339,13 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 @auth
+@auth
 async def cmd_files(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    entries = sorted(Path(DOWNLOAD_DIR).iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not entries:
+    p = Path(DOWNLOAD_DIR)
+    if not p.exists() or not any(p.iterdir()):
         await update.message.reply_text("Folder download kosong.")
         return
+    entries = sorted(p.iterdir(), key=lambda e: e.stat().st_mtime, reverse=True)
     buttons = []
     for e in entries[:20]:
         size = a2.format_size(e.stat().st_size) if e.is_file() else "dir"
