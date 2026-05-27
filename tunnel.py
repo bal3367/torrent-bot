@@ -6,6 +6,17 @@ tunnel_url: str | None = None
 _proc = None
 
 
+async def _drain(stream):
+    """Terus baca stream agar pipe tidak penuh dan cloudflared tidak mati."""
+    try:
+        while True:
+            line = await stream.readline()
+            if not line:
+                break
+    except Exception:
+        pass
+
+
 async def start_tunnel(port: int) -> str | None:
     """
     Jalankan cloudflared quick tunnel ke localhost:port.
@@ -17,9 +28,10 @@ async def start_tunnel(port: int) -> str | None:
             "cloudflared", "tunnel", "--url", f"http://localhost:{port}",
             "--no-autoupdate",
             stderr=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
         )
-        # Baca output sampai URL muncul (timeout 30 detik)
+        # Baca stderr sampai URL muncul (timeout 30 detik)
+        found_url = None
         while True:
             try:
                 line = await asyncio.wait_for(_proc.stderr.readline(), timeout=30)
@@ -30,10 +42,16 @@ async def start_tunnel(port: int) -> str | None:
             decoded = line.decode(errors="ignore")
             match = re.search(r'https://[a-z0-9\-]+\.trycloudflare\.com', decoded)
             if match:
-                tunnel_url = match.group()
-                return tunnel_url
+                found_url = match.group()
+                break
+
+        if found_url:
+            tunnel_url = found_url
+            # Drain sisa stderr di background agar buffer tidak penuh
+            asyncio.create_task(_drain(_proc.stderr))
+            return tunnel_url
+
     except FileNotFoundError:
-        # cloudflared tidak terinstall
         return None
     except Exception:
         return None
