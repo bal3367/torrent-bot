@@ -1,42 +1,51 @@
-# Torrent Bot
+# 🤖 Torrent Bot
 
-Telegram bot untuk download torrent via VPS menggunakan aria2c.
+Telegram bot untuk download torrent via VPS — auto Cloudflare tunnel, server list, ZIP & SCP transfer.
 
-## Deploy ke VPS baru
+## 🚀 Install (pilih salah satu)
 
+### Cara 1 — One-liner (paling mudah)
 ```bash
-git clone https://github.com/bal3367/torrent-bot
-cd torrent-bot
-chmod +x setup.sh start.sh stop.sh
-./setup.sh
-# Edit .env: isi BOT_TOKEN, ALLOWED_CHAT_ID, VPS_IP
-nano .env
-./start.sh
+curl -sL https://raw.githubusercontent.com/bal3367/torrent-bot/main/install.sh | bash
 ```
 
-## Commands
+### Cara 2 — Git clone + make
+```bash
+git clone https://github.com/bal3367/torrent-bot.git ~/torrent_bot
+cd ~/torrent_bot
+make
+```
 
-| Command | Fungsi |
-|---|---|
-| `/add <magnet/url>` | Tambah torrent |
-| kirim file `.torrent` | Upload torrent file |
-| `/list` | Lihat progress download |
-| `/pause <GID>` | Pause download |
-| `/resume <GID>` | Resume download |
-| `/cancel <GID>` | Batalkan download |
-| `/files` | Browse file tersimpan |
-| `/link <filename>` | Generate link download |
-| `/delete <filename>` | Hapus file |
-| `/storage` | Cek disk usage |
+### Cara 3 — Clone + install sekaligus
+```bash
+git clone https://github.com/bal3367/torrent-bot.git ~/torrent_bot && ~/torrent_bot/install.sh
+```
 
-## Requirements
+Setelah install selesai → cek Telegram, bot langsung kirim notifikasi online + link download.
 
-- Ubuntu/Debian VPS
-- Python 3.10+
-- Port 8080 terbuka (untuk file server)
-
-## Stop
+## 🛠 Commands
 
 ```bash
-./stop.sh
+make            # install & start
+make start      # start bot
+make stop       # stop bot
+make restart    # restart bot
+make update     # pull update terbaru & restart
 ```
+
+## ⚠️ Multi-VPS
+
+Bot pakai 1 token → hanya **1 VPS boleh running sekaligus**.
+Mau pindah VPS? Stop dulu bot lama via Telegram → 🖥 Server List → 🗑 (auto stop).
+
+## 📱 Fitur Bot
+
+| Fitur | Keterangan |
+|-------|-----------|
+| 📥 Tambah Torrent | Kirim magnet link / .torrent URL / upload file |
+| 📋 List Download | Progress + speed + ukuran real-time |
+| 📁 Browse File | Browse & download file hasil download |
+| 📦 Zip Folder | Gabungkan semua file jadi 1 ZIP |
+| 📋 SCP Command | Command PowerShell untuk download ke PC |
+| 🌐 CF Tunnel | Auto public HTTPS URL tiap startup |
+| 🖥 Server List | Manage multi-VPS, toggle, delete = stop |
