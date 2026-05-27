@@ -333,20 +333,72 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not path.exists():
         await query.edit_message_text("File tidak ditemukan.")
         return
-    size = a2.format_size(path.stat().st_size) if path.is_file() else "-"
+    if path.is_file():
+        size_bytes = path.stat().st_size
+    else:
+        size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    size = a2.format_size(size_bytes)
     link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
     buttons = [
         [
-            InlineKeyboardButton("⬇ Link Download", url=link),
-            InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}"),
+            InlineKeyboardButton("⬇ HTTP Link", url=link),
+            InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
         ],
+        [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
         [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         back_button()[0],
     ]
     await query.edit_message_text(
-        f"Nama: {filename}\nUkuran: {size}\nLink: {link}",
+        f"📄 *{filename}*\nUkuran: {size}\nHTTP: `{link}`",
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
+
+async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    filename = query.data.split(":", 1)[1]
+    path = Path(DOWNLOAD_DIR) / filename
+    if not path.exists():
+        await query.message.reply_text("File tidak ditemukan.")
+        return
+
+    # Hitung total ukuran
+    if path.is_file():
+        size_bytes = path.stat().st_size
+    else:
+        size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+    LIMIT = 45 * 1024 * 1024  # 45 MB
+
+    if size_bytes <= LIMIT:
+        # Kirim langsung via Telegram
+        msg = await query.message.reply_text("📤 Mengirim file, mohon tunggu...")
+        try:
+            with open(path, "rb") as f:
+                await ctx.bot.send_document(
+                    chat_id=ALLOWED_CHAT_ID,
+                    document=f,
+                    filename=filename,
+                )
+            await msg.edit_text(f"✅ File '{filename}' berhasil dikirim!")
+        except Exception as e:
+            await msg.edit_text(f"❌ Gagal kirim: {e}")
+    else:
+        # File terlalu besar — kirim instruksi
+        link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
+        scp_path = f"{DOWNLOAD_DIR}/{filename}"
+        scp_cmd = f"scp ubuntu@{VPS_IP}:'{scp_path}' ./"
+        await query.message.reply_text(
+            f"⚠️ *File terlalu besar untuk Telegram* ({a2.format_size(size_bytes)})\n"
+            f"Batas upload bot: 45 MB\n\n"
+            f"*Cara 1 — HTTP* (buka port 8080 di cloud console dulu):\n"
+            f"`{link}`\n\n"
+            f"*Cara 2 — SCP* (langsung bisa, pakai terminal):\n"
+            f"`{scp_cmd}`",
+            parse_mode="Markdown",
+        )
 
 
 async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -495,6 +547,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_mainmenu, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(cb_dlaction, pattern=r"^dlaction:"))
     app.add_handler(CallbackQueryHandler(cb_fileinfo, pattern=r"^fileinfo:"))
+    app.add_handler(CallbackQueryHandler(cb_sendtg, pattern=r"^sendtg:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
