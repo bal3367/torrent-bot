@@ -2,21 +2,8 @@
 
 Telegram bot untuk download torrent via VPS — auto Cloudflare tunnel, server list, ZIP & SCP transfer.
 
-## 🚀 Install (pilih salah satu)
+## 🚀 Install
 
-### Cara 1 — One-liner (paling mudah)
-```bash
-curl -sL https://raw.githubusercontent.com/bal3367/torrent-bot/main/install.sh | bash
-```
-
-### Cara 2 — Git clone + make
-```bash
-git clone https://github.com/bal3367/torrent-bot.git ~/torrent_bot
-cd ~/torrent_bot
-make
-```
-
-### Cara 3 — Clone + install sekaligus
 ```bash
 git clone https://github.com/bal3367/torrent-bot.git ~/torrent_bot && ~/torrent_bot/install.sh
 ```
