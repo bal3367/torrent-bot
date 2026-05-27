@@ -135,8 +135,10 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         for d in active:
             name = (d.name or d.gid)[:35]
             pct = d.progress if hasattr(d, "progress") else 0
-            speed = a2.format_speed(d.download_speed) if d.status == "active" else d.status
-            lines.append(f"{name}\n  {pct:.1f}% | {speed}")
+            done = a2.format_size(d.completed_length)
+            total = a2.format_size(d.total_length) if d.total_length else "?"
+            speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
+            lines.append(f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
             buttons.append([
                 InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
                 InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
@@ -213,8 +215,10 @@ async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for d in active:
         name = (d.name or d.gid)[:35]
         pct = d.progress if hasattr(d, "progress") else 0
-        speed = a2.format_speed(d.download_speed) if d.status == "active" else d.status
-        lines.append(f"{name}\n  {pct:.1f}% | {speed}")
+        done = a2.format_size(d.completed_length)
+        total = a2.format_size(d.total_length) if d.total_length else "?"
+        speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
+        lines.append(f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
         buttons.append([
             InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
             InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
@@ -270,8 +274,10 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for d in active:
         name = (d.name or d.gid)[:40]
         pct = d.progress if hasattr(d, "progress") else 0
-        speed = a2.format_speed(d.download_speed) if d.status == "active" else d.status
-        lines.append(f"{name}\n  GID: {d.gid} | {pct:.1f}% | {speed}")
+        done = a2.format_size(d.completed_length)
+        total = a2.format_size(d.total_length) if d.total_length else "?"
+        speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
+        lines.append(f"{name}\n  GID: {d.gid}\n  {done} / {total} ({pct:.1f}%) | {speed}")
     await update.message.reply_text("\n\n".join(lines))
 
 
