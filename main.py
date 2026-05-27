@@ -99,7 +99,7 @@ async def handle_torrent_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["waiting_for_link"] = False
     uri = update.message.text.strip()
     try:
-        gid = a2.add_magnet(uri)
+        gid = a2.add_uri(uri)
         await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
     except Exception as e:
         await update.message.reply_text(f"Gagal: {e}")
@@ -183,20 +183,20 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     parts = query.data.split(":", 2)
     action, gid = parts[1], parts[2]
 
     if action == "pause":
         ok = a2.pause_download(gid)
-        await query.answer("Di-pause." if ok else "Gagal.", show_alert=True)
+        await query.answer("⏸ Di-pause." if ok else "Gagal.", show_alert=True)
     elif action == "resume":
         ok = a2.resume_download(gid)
-        await query.answer("Dilanjutkan." if ok else "Gagal.", show_alert=True)
+        await query.answer("▶ Dilanjutkan." if ok else "Gagal.", show_alert=True)
     elif action == "cancel":
         ok = a2.cancel_download(gid)
-        await query.answer("Dibatalkan." if ok else "Gagal.", show_alert=True)
+        await query.answer("❌ Dibatalkan." if ok else "Gagal.", show_alert=True)
     elif action == "noop":
+        await query.answer()
         return
 
     # Refresh list setelah aksi
@@ -235,7 +235,7 @@ async def cmd_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     uri = ctx.args[0]
     try:
-        gid = a2.add_magnet(uri)
+        gid = a2.add_uri(uri)
         await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
     except Exception as e:
         await update.message.reply_text(f"Gagal: {e}")
@@ -436,6 +436,7 @@ async def cmd_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(app: Application):
+    Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
     asyncio.create_task(start_file_server())
     asyncio.create_task(notify_loop(app.bot))
     # Startup notification

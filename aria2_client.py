@@ -25,6 +25,15 @@ def add_magnet(uri: str) -> str:
     return dl.gid
 
 
+def add_uri(uri: str) -> str:
+    """Tambah magnet link ATAU direct URL (.torrent HTTP/HTTPS)."""
+    if uri.strip().startswith("magnet:"):
+        dl = get_client().add_magnet(uri)
+    else:
+        dl = get_client().add_uris([uri])
+    return dl.gid
+
+
 def add_torrent_file(path: str) -> str:
     dl = get_client().add_torrent(path)
     return dl.gid
