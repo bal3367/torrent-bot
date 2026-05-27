@@ -605,7 +605,7 @@ def _server_list_text_buttons(servers: list[dict], statuses: list[bool]):
                 callback_data=f"srv:toggle:{i}",
             ),
             InlineKeyboardButton("📋 Info", callback_data=f"srv:info:{i}"),
-            InlineKeyboardButton("🗑", callback_data=f"srv:delete:{i}"),
+            InlineKeyboardButton("🗑", callback_data=f"srv:confirmdelete:{i}"),
         ]
         buttons.append(row)
     buttons.append([
