@@ -683,28 +683,49 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif action == "confirmdelete" and idx is not None:
         s = servers[idx]
+        is_self = s.get("ip") == VPS_IP
+        warning = (
+            "\n\n⚠️ *Ini adalah VPS yang sedang running!*\n"
+            "Bot akan langsung STOP setelah dihapus."
+            if is_self else ""
+        )
         buttons = [
             [
-                InlineKeyboardButton("Ya, hapus", callback_data=f"srv:dodelete:{idx}"),
+                InlineKeyboardButton("🛑 Ya, hapus & stop", callback_data=f"srv:dodelete:{idx}"),
                 InlineKeyboardButton("Batal", callback_data="srv:refresh"),
             ]
         ]
         await query.edit_message_text(
-            f"Hapus server *{s['label']}* (`{s.get('ip', '?')}`) dari daftar?",
+            f"Hapus server *{s['label']}* (`{s.get('ip', '?')}`) dari daftar?{warning}",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
     elif action == "dodelete" and idx is not None:
         removed = servers.pop(idx)
+        is_self = removed.get("ip") == VPS_IP
         srv.save_servers(servers)
-        statuses = await srv.check_all_online(servers) if servers else []
-        text, buttons = _server_list_text_buttons(servers, statuses)
-        await query.edit_message_text(
-            f"✅ Server *{removed['label']}* dihapus.\n\n" + text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
+
+        if is_self:
+            # Hapus diri sendiri — stop bot setelah kirim konfirmasi
+            await query.edit_message_text(
+                f"🛑 *{removed['label']}* dihapus dari daftar.\n"
+                f"Bot di VPS ini akan berhenti dalam 3 detik...",
+                parse_mode="Markdown",
+            )
+            async def _stop_self():
+                await asyncio.sleep(3)
+                import signal, os as _os
+                _os.kill(_os.getpid(), signal.SIGTERM)
+            asyncio.create_task(_stop_self())
+        else:
+            statuses = await srv.check_all_online(servers) if servers else []
+            text, buttons = _server_list_text_buttons(servers, statuses)
+            await query.edit_message_text(
+                f"✅ Server *{removed['label']}* dihapus.\n\n" + text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(buttons),
+            )
 
     elif action == "add":
         ctx.user_data["waiting_for_server"] = True
