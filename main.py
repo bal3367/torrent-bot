@@ -19,6 +19,7 @@ from telegram.ext import (
 import aria2_client as a2
 from file_server import start_file_server
 from notifier import notify_loop
+import tunnel as tun
 
 load_dotenv()
 
@@ -338,10 +339,13 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
     size = a2.format_size(size_bytes)
-    link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
+    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    import urllib.parse
+    link = f"{base_url}/{urllib.parse.quote(filename)}"
+    label_link = "🌐 Download (CF)" if tun.tunnel_url else "⬇ HTTP Link"
     buttons = [
         [
-            InlineKeyboardButton("⬇ HTTP Link", url=link),
+            InlineKeyboardButton(label_link, url=link),
             InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
         ],
         [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
@@ -349,7 +353,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         back_button()[0],
     ]
     await query.edit_message_text(
-        f"📄 *{filename}*\nUkuran: {size}\nHTTP: `{link}`",
+        f"📄 *{filename}*\nUkuran: {size}\n🔗 `{link}`",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
@@ -386,19 +390,25 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await msg.edit_text(f"❌ Gagal kirim: {e}")
     else:
-        # File terlalu besar — kirim instruksi
-        link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
-        scp_path = f"{DOWNLOAD_DIR}/{filename}"
-        scp_cmd = f"scp ubuntu@{VPS_IP}:'{scp_path}' ./"
-        await query.message.reply_text(
-            f"⚠️ *File terlalu besar untuk Telegram* ({a2.format_size(size_bytes)})\n"
-            f"Batas upload bot: 45 MB\n\n"
-            f"*Cara 1 — HTTP* (buka port 8080 di cloud console dulu):\n"
-            f"`{link}`\n\n"
-            f"*Cara 2 — SCP* (langsung bisa, pakai terminal):\n"
-            f"`{scp_cmd}`",
-            parse_mode="Markdown",
-        )
+        # File terlalu besar — kirim link CF tunnel atau fallback SCP
+        import urllib.parse
+        base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+        link = f"{base_url}/{urllib.parse.quote(filename)}"
+        scp_cmd = f"scp ubuntu@{VPS_IP}:'{DOWNLOAD_DIR}/{filename}' ./"
+        if tun.tunnel_url:
+            msg = (
+                f"📦 *{filename}*\n"
+                f"Ukuran: {a2.format_size(size_bytes)}\n\n"
+                f"🌐 *Download via browser* (klik link):\n"
+                f"{link}"
+            )
+        else:
+            msg = (
+                f"⚠️ *File terlalu besar untuk Telegram* ({a2.format_size(size_bytes)})\n\n"
+                f"*Cara 1 — HTTP* (buka port 8080 di cloud console):\n`{link}`\n\n"
+                f"*Cara 2 — SCP* (pakai terminal/WinSCP):\n`{scp_cmd}`"
+            )
+        await query.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -497,6 +507,8 @@ async def post_init(app: Application):
     Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
     asyncio.create_task(start_file_server())
     asyncio.create_task(notify_loop(app.bot))
+    # Start Cloudflare tunnel
+    cf_url = await tun.start_tunnel(int(FILE_SERVER_PORT))
     # Startup notification
     try:
         import socket
@@ -506,13 +518,15 @@ async def post_init(app: Application):
                 pub_ip = r.read().decode().strip()
         except Exception:
             pub_ip = VPS_IP
+        tunnel_line = f"🌐 Download Server: {cf_url}" if cf_url else "⚠️ Tunnel gagal start (cloudflared tidak terinstall?)"
         await app.bot.send_message(
             chat_id=ALLOWED_CHAT_ID,
             text=(
                 f"🟢 *Torrent Bot Online!*\n"
                 f"🖥 Host: `{hostname}`\n"
                 f"📡 IP: `{pub_ip}`\n"
-                f"📂 Dir: `{DOWNLOAD_DIR}`\n\n"
+                f"📂 Dir: `{DOWNLOAD_DIR}`\n"
+                f"{tunnel_line}\n\n"
                 f"Ketik /start untuk melihat commands."
             ),
             parse_mode="Markdown",

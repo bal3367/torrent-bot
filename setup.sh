@@ -3,7 +3,17 @@ set -e
 
 echo "=== Torrent Bot Setup ==="
 
-sudo apt update && sudo apt install -y aria2 python3-pip screen python3-venv
+sudo apt update && sudo apt install -y aria2 python3-pip screen python3-venv curl
+
+# Install cloudflared (untuk tunnel publik download server)
+if ! command -v cloudflared &> /dev/null; then
+    echo "Installing cloudflared..."
+    curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+        -o /tmp/cloudflared
+    sudo mv /tmp/cloudflared /usr/local/bin/cloudflared
+    sudo chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared installed."
+fi
 
 cd "$(dirname "$0")"
 
