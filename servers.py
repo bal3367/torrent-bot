@@ -50,10 +50,18 @@ def register_self(label: str, ip: str, file_server_port: str, tunnel_url: str | 
     _save(servers)
 
 
-async def check_online(server: dict, timeout: float = 4.0) -> bool:
-    """Cek apakah server bisa dijangkau via HTTP (file server)."""
+async def check_online(server: dict, timeout: float = 4.0, own_ip: str | None = None) -> bool:
+    """Cek apakah server bisa dijangkau.
+
+    Jika own_ip diberikan dan cocok dengan IP server ini → selalu True
+    (bot sedang running, pasti online).
+    """
     import urllib.request
     import urllib.error
+
+    # Kalau ini VPS kita sendiri yang sedang running → pasti online
+    if own_ip and server.get("ip") == own_ip:
+        return True
 
     urls_to_try = []
     if server.get("tunnel_url"):
@@ -62,6 +70,9 @@ async def check_online(server: dict, timeout: float = 4.0) -> bool:
     port = server.get("file_server_port", "8080")
     if ip:
         urls_to_try.append(f"http://{ip}:{port}/")
+
+    if not urls_to_try:
+        return False
 
     loop = asyncio.get_event_loop()
 
@@ -80,7 +91,7 @@ async def check_online(server: dict, timeout: float = 4.0) -> bool:
     return False
 
 
-async def check_all_online(servers: list[dict]) -> list[bool]:
+async def check_all_online(servers: list[dict], own_ip: str | None = None) -> list[bool]:
     """Check semua server secara paralel."""
-    results = await asyncio.gather(*[check_online(s) for s in servers])
+    results = await asyncio.gather(*[check_online(s, own_ip=own_ip) for s in servers])
     return list(results)

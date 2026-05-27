@@ -118,7 +118,7 @@ async def handle_text_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "tunnel_url": None, "active": True, "notes": "",
         })
         srv.save_servers(server_list)
-        statuses = await srv.check_all_online(server_list)
+        statuses = await srv.check_all_online(server_list, own_ip=VPS_IP)
         text_out, buttons = _server_list_text_buttons(server_list, statuses)
         await update.message.reply_text(
             f"✅ Server *{label}* (`{ip}`) ditambahkan!\n\n" + text_out,
@@ -622,7 +622,7 @@ async def cmd_servers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Tampilkan server list dengan status online."""
     msg = await update.message.reply_text("🔄 Mengecek status server...")
     servers = srv.get_servers()
-    statuses = await srv.check_all_online(servers) if servers else []
+    statuses = await srv.check_all_online(servers, own_ip=VPS_IP) if servers else []
     text, buttons = _server_list_text_buttons(servers, statuses)
     await msg.edit_text(text, parse_mode="Markdown",
                         reply_markup=InlineKeyboardMarkup(buttons))
@@ -640,7 +640,7 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if action == "refresh":
         await query.edit_message_text("🔄 Mengecek status server...")
-        statuses = await srv.check_all_online(servers) if servers else []
+        statuses = await srv.check_all_online(servers, own_ip=VPS_IP) if servers else []
         text, buttons = _server_list_text_buttons(servers, statuses)
         await query.edit_message_text(text, parse_mode="Markdown",
                                       reply_markup=InlineKeyboardMarkup(buttons))
@@ -648,7 +648,7 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif action == "toggle" and idx is not None:
         servers[idx]["active"] = not servers[idx].get("active", True)
         srv.save_servers(servers)
-        statuses = await srv.check_all_online(servers)
+        statuses = await srv.check_all_online(servers, own_ip=VPS_IP)
         text, buttons = _server_list_text_buttons(servers, statuses)
         await query.edit_message_text(text, parse_mode="Markdown",
                                       reply_markup=InlineKeyboardMarkup(buttons))
@@ -721,7 +721,7 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 _os.kill(_os.getpid(), signal.SIGTERM)
             asyncio.create_task(_stop_self())
         else:
-            statuses = await srv.check_all_online(servers) if servers else []
+            statuses = await srv.check_all_online(servers, own_ip=VPS_IP) if servers else []
             text, buttons = _server_list_text_buttons(servers, statuses)
             await query.edit_message_text(
                 f"✅ Server *{removed['label']}* dihapus.\n\n" + text,
