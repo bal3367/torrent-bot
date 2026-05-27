@@ -18,6 +18,19 @@ else
         --max-download-limit="${MAX_DOWNLOAD_SPEED:-0}" \
         --max-upload-limit="${MAX_UPLOAD_SPEED:-0}" \
         --continue=true \
+        --max-connection-per-server=16 \
+        --split=16 \
+        --min-split-size=1M \
+        --max-concurrent-downloads=5 \
+        --bt-enable-lpd=true \
+        --enable-dht=true \
+        --enable-peer-exchange=true \
+        --bt-max-peers=100 \
+        --seed-time=0 \
+        --file-allocation=none \
+        --bt-prioritize-piece=head,tail \
+        --check-integrity=true \
+        --auto-file-renaming=true \
         --daemon=true \
         --log=aria2.log
     echo "aria2c started."

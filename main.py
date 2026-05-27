@@ -438,6 +438,28 @@ async def cmd_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     asyncio.create_task(start_file_server())
     asyncio.create_task(notify_loop(app.bot))
+    # Startup notification
+    try:
+        import socket
+        hostname = socket.gethostname()
+        try:
+            with urllib.request.urlopen("https://ifconfig.me/ip", timeout=5) as r:
+                pub_ip = r.read().decode().strip()
+        except Exception:
+            pub_ip = VPS_IP
+        await app.bot.send_message(
+            chat_id=ALLOWED_CHAT_ID,
+            text=(
+                f"🟢 *Torrent Bot Online!*\n"
+                f"🖥 Host: `{hostname}`\n"
+                f"📡 IP: `{pub_ip}`\n"
+                f"📂 Dir: `{DOWNLOAD_DIR}`\n\n"
+                f"Ketik /start untuk melihat commands."
+            ),
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
 
 
 def main():
