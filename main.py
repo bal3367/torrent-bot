@@ -20,6 +20,7 @@ import aria2_client as a2
 from file_server import start_file_server
 from notifier import notify_loop
 import tunnel as tun
+import servers as srv
 
 load_dotenv()
 
@@ -44,6 +45,7 @@ def reply_keyboard():
     return ReplyKeyboardMarkup([
         ["📥 Tambah Torrent", "📋 List Download"],
         ["📁 Browse File",    "💾 Storage"],
+        ["🖥 Server List"],
     ], resize_keyboard=True)
 
 
@@ -76,7 +78,7 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-MENU_TEXTS = {"📥 Tambah Torrent", "📋 List Download", "📁 Browse File", "💾 Storage"}
+MENU_TEXTS = {"📥 Tambah Torrent", "📋 List Download", "📁 Browse File", "💾 Storage", "🖥 Server List"}
 
 
 @auth
@@ -91,19 +93,46 @@ async def handle_reply_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await cmd_files(update, ctx)
     elif text == "💾 Storage":
         await cmd_storage(update, ctx)
+    elif text == "🖥 Server List":
+        await cmd_servers(update, ctx)
 
 
 @auth
-async def handle_torrent_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.user_data.get("waiting_for_link"):
-        return
-    ctx.user_data["waiting_for_link"] = False
-    uri = update.message.text.strip()
-    try:
-        gid = a2.add_uri(uri)
-        await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
-    except Exception as e:
-        await update.message.reply_text(f"Gagal: {e}")
+async def handle_text_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Single handler untuk semua free-text input: torrent link & tambah server."""
+    if ctx.user_data.get("waiting_for_server"):
+        ctx.user_data["waiting_for_server"] = False
+        text = update.message.text.strip()
+        parts = [p.strip() for p in text.split("|")]
+        if len(parts) < 2:
+            await update.message.reply_text(
+                "Format salah. Gunakan: `LABEL | IP | PORT`", parse_mode="Markdown"
+            )
+            return
+        label = parts[0]
+        ip = parts[1]
+        port = parts[2] if len(parts) > 2 else "8080"
+        server_list = srv.get_servers()
+        server_list.append({
+            "label": label, "ip": ip, "file_server_port": port,
+            "tunnel_url": None, "active": True, "notes": "",
+        })
+        srv.save_servers(server_list)
+        statuses = await srv.check_all_online(server_list)
+        text_out, buttons = _server_list_text_buttons(server_list, statuses)
+        await update.message.reply_text(
+            f"✅ Server *{label}* (`{ip}`) ditambahkan!\n\n" + text_out,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+    elif ctx.user_data.get("waiting_for_link"):
+        ctx.user_data["waiting_for_link"] = False
+        uri = update.message.text.strip()
+        try:
+            gid = a2.add_uri(uri)
+            await update.message.reply_text(f"Ditambahkan!\nGID: {gid}")
+        except Exception as e:
+            await update.message.reply_text(f"Gagal: {e}")
 
 
 async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -558,6 +587,138 @@ async def cb_zipready(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def _server_list_text_buttons(servers: list[dict], statuses: list[bool]):
+    """Build teks + inline buttons untuk server list."""
+    if not servers:
+        return "🖥 *Server List*\n\nBelum ada server terdaftar.", [
+            [InlineKeyboardButton("➕ Tambah Server", callback_data="srv:add")],
+        ]
+    lines = ["🖥 *Server List*\n"]
+    buttons = []
+    for i, (s, online) in enumerate(zip(servers, statuses)):
+        status = "✅ Online" if online else "❌ Offline"
+        active_icon = "" if s.get("active", True) else " ⏸"
+        lines.append(f"{i+1}. *{s['label']}*{active_icon} — {status}")
+        row = [
+            InlineKeyboardButton(
+                f"{'⏸ Disable' if s.get('active', True) else '▶ Enable'}",
+                callback_data=f"srv:toggle:{i}",
+            ),
+            InlineKeyboardButton("📋 Info", callback_data=f"srv:info:{i}"),
+            InlineKeyboardButton("🗑", callback_data=f"srv:delete:{i}"),
+        ]
+        buttons.append(row)
+    buttons.append([
+        InlineKeyboardButton("➕ Tambah Server", callback_data="srv:add"),
+        InlineKeyboardButton("🔄 Refresh", callback_data="srv:refresh"),
+    ])
+    return "\n".join(lines), buttons
+
+
+@auth
+async def cmd_servers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Tampilkan server list dengan status online."""
+    msg = await update.message.reply_text("🔄 Mengecek status server...")
+    servers = srv.get_servers()
+    statuses = await srv.check_all_online(servers) if servers else []
+    text, buttons = _server_list_text_buttons(servers, statuses)
+    await msg.edit_text(text, parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handler semua callback srv:*"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":", 2)
+    action = parts[1]
+    idx = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+
+    servers = srv.get_servers()
+
+    if action == "refresh":
+        await query.edit_message_text("🔄 Mengecek status server...")
+        statuses = await srv.check_all_online(servers) if servers else []
+        text, buttons = _server_list_text_buttons(servers, statuses)
+        await query.edit_message_text(text, parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif action == "toggle" and idx is not None:
+        servers[idx]["active"] = not servers[idx].get("active", True)
+        srv.save_servers(servers)
+        statuses = await srv.check_all_online(servers)
+        text, buttons = _server_list_text_buttons(servers, statuses)
+        await query.edit_message_text(text, parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif action == "info" and idx is not None:
+        s = servers[idx]
+        ip = s.get("ip", "?")
+        port = s.get("file_server_port", "8080")
+        tunnel = s.get("tunnel_url") or "-"
+        active = "✅ Enabled" if s.get("active", True) else "⏸ Disabled"
+        scp_win = f'scp -r ubuntu@{ip}:"/home/ubuntu/torrent_bot/downloads/" "C:\\Users\\YourName\\Downloads\\"'
+        scp_mac = f"scp -r ubuntu@{ip}:'/home/ubuntu/torrent_bot/downloads/' ~/Downloads/"
+        text = (
+            f"🖥 *{s['label']}*\n"
+            f"IP: `{ip}:{port}`\n"
+            f"CF Tunnel: `{tunnel}`\n"
+            f"Status: {active}\n"
+            f"Catatan: {s.get('notes') or '-'}\n\n"
+            f"*SCP Windows:*\n`{scp_win}`\n\n"
+            f"*SCP Mac/Linux:*\n`{scp_mac}`"
+        )
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    "⏸ Disable" if s.get("active", True) else "▶ Enable",
+                    callback_data=f"srv:toggle:{idx}",
+                ),
+                InlineKeyboardButton("🗑 Hapus Server", callback_data=f"srv:confirmdelete:{idx}"),
+            ],
+            [InlineKeyboardButton("← Server List", callback_data="srv:refresh")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown",
+                                      reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif action == "confirmdelete" and idx is not None:
+        s = servers[idx]
+        buttons = [
+            [
+                InlineKeyboardButton("Ya, hapus", callback_data=f"srv:dodelete:{idx}"),
+                InlineKeyboardButton("Batal", callback_data="srv:refresh"),
+            ]
+        ]
+        await query.edit_message_text(
+            f"Hapus server *{s['label']}* (`{s.get('ip', '?')}`) dari daftar?",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    elif action == "dodelete" and idx is not None:
+        removed = servers.pop(idx)
+        srv.save_servers(servers)
+        statuses = await srv.check_all_online(servers) if servers else []
+        text, buttons = _server_list_text_buttons(servers, statuses)
+        await query.edit_message_text(
+            f"✅ Server *{removed['label']}* dihapus.\n\n" + text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    elif action == "add":
+        ctx.user_data["waiting_for_server"] = True
+        await query.edit_message_text(
+            "➕ *Tambah Server Baru*\n\n"
+            "Kirim data server dalam format:\n"
+            "`LABEL | IP | PORT`\n\n"
+            "Contoh:\n`VPS-SG | 1.2.3.4 | 8080`\n\n"
+            "_(Port default: 8080)_",
+            parse_mode="Markdown",
+        )
+
+
+
 async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -656,6 +817,11 @@ async def post_init(app: Application):
     asyncio.create_task(notify_loop(app.bot))
     # Start Cloudflare tunnel
     cf_url = await tun.start_tunnel(int(FILE_SERVER_PORT))
+    # Auto-register VPS ini ke server list
+    import socket
+    _hostname = socket.gethostname()
+    _label = os.getenv("SERVER_LABEL", _hostname)
+    srv.register_self(_label, VPS_IP, FILE_SERVER_PORT, cf_url)
     # Startup notification
     try:
         import socket
@@ -702,7 +868,7 @@ def main():
     ))
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        handle_torrent_link,
+        handle_text_input,
     ))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(cb_mainmenu, pattern=r"^menu:"))
@@ -712,6 +878,8 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_makezip, pattern=r"^makezip:"))
     app.add_handler(CallbackQueryHandler(cb_zipready, pattern=r"^zipready:"))
     app.add_handler(CallbackQueryHandler(cb_scpcmd, pattern=r"^scpcmd:"))
+    app.add_handler(CommandHandler("servers", cmd_servers))
+    app.add_handler(CallbackQueryHandler(cb_srv, pattern=r"^srv:"))
     app.add_handler(CallbackQueryHandler(cb_confirmdelete, pattern=r"^confirmdelete:"))
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
