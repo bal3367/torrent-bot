@@ -36,15 +36,16 @@ else
     echo "aria2c started."
 fi
 
+# Kill existing bot process if any (screen bisa hidup tapi Python-nya mati)
+screen -S torrent_bot -X quit 2>/dev/null || true
+pkill -f "python3 main.py" 2>/dev/null || true
+sleep 1
+
 # Start bot in screen
-if screen -list | grep -q "torrent_bot"; then
-    echo "Screen 'torrent_bot' sudah berjalan. Gunakan: screen -r torrent_bot"
+if [ -d venv ]; then
+    screen -dmS torrent_bot bash -c "source venv/bin/activate && python3 main.py 2>&1 | tee -a bot.log"
 else
-    if [ -d venv ]; then
-        screen -S torrent_bot -dm bash -c "source venv/bin/activate && python3 main.py"
-    else
-        screen -S torrent_bot -dm python3 main.py
-    fi
-    echo "Bot berjalan di screen 'torrent_bot'."
-    echo "Lihat log: screen -r torrent_bot"
+    screen -dmS torrent_bot bash -c "python3 main.py 2>&1 | tee -a bot.log"
 fi
+echo "Bot berjalan di screen 'torrent_bot'."
+echo "Lihat log: tail -f bot.log  |  screen -r torrent_bot"

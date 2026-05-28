@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -999,7 +1000,15 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
 
     print("Bot started.")
-    app.run_polling(drop_pending_updates=True)
+    from telegram.error import Conflict as _TgConflict
+    for _attempt in range(20):
+        try:
+            app.run_polling(drop_pending_updates=True)
+            break
+        except _TgConflict:
+            _wait = min(30 * (_attempt + 1), 300)
+            print(f"[Conflict] instance lain masih jalan, retry {_attempt+1}/20 dalam {_wait}s...")
+            time.sleep(_wait)
 
 
 if __name__ == "__main__":
