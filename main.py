@@ -498,28 +498,30 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         link = f"{base_url}/{urllib.parse.quote(filename)}"
         scp_flag = "-r"  # rekursif untuk folder
         scp_target = f"{DOWNLOAD_DIR}/{filename}/"
+        ref = _ref(filename)
         buttons = [
             [InlineKeyboardButton(label_link, url=link)],
             [InlineKeyboardButton(
                 f"📦 {'Download ZIP' if zip_exists else 'Buat ZIP'} ({size})",
-                callback_data=f"makezip:{filename}" if not zip_exists else f"zipready:{filename}",
+                callback_data=f"makezip:{ref}" if not zip_exists else f"zipready:{ref}",
             )],
-            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{filename}")],
-            [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{filename}")],
+            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{ref}")],
+            [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
         info = f"📁 *{filename}*\nUkuran: {size} ({sum(1 for _ in path.rglob('*') if _.is_file())} file)"
         if zip_exists:
             info += f"\n✅ ZIP sudah ada → [download]({zip_link})"
     else:
+        ref = _ref(filename)
         link = f"{base_url}/{urllib.parse.quote(filename)}"
         buttons = [
             [
                 InlineKeyboardButton(label_link, url=link),
-                InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{filename}"),
+                InlineKeyboardButton("📤 Kirim TG", callback_data=f"sendtg:{ref}"),
             ],
-            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{filename}")],
-            [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{filename}")],
+            [InlineKeyboardButton("📋 SCP Command", callback_data=f"scpcmd:{ref}")],
+            [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
         info = f"📄 *{filename}*\nUkuran: {size}\n🔗 `{link}`"
@@ -535,7 +537,8 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
     path = Path(DOWNLOAD_DIR) / filename
     if not path.exists():
         await query.message.reply_text("File tidak ditemukan.")
@@ -588,7 +591,8 @@ async def cb_scpcmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Kirim SCP command siap pakai untuk Windows PowerShell / Linux terminal."""
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
     path = Path(DOWNLOAD_DIR) / filename
 
     # Cek apakah zip sudah ada, prioritaskan zip
@@ -636,7 +640,8 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Mulai buat ZIP dari folder, kirim notifikasi saat selesai."""
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
     src_path = Path(DOWNLOAD_DIR) / filename
     zip_name = filename + ".zip"
     zip_path = Path(DOWNLOAD_DIR) / zip_name
@@ -692,7 +697,8 @@ async def cb_zipready(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """ZIP sudah ada — langsung kirim link."""
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
     zip_name = filename + ".zip"
     zip_path = Path(DOWNLOAD_DIR) / zip_name
     import urllib.parse
@@ -861,10 +867,12 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
+    ref = _ref(filename)
     buttons = [
         [
-            InlineKeyboardButton("Ya, hapus", callback_data=f"dodelete:{filename}"),
+            InlineKeyboardButton("Ya, hapus", callback_data=f"dodelete:{ref}"),
             InlineKeyboardButton("Batal", callback_data="canceldelete"),
         ]
     ]
@@ -877,7 +885,8 @@ async def cb_confirmdelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cb_dodelete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    filename = query.data.split(":", 1)[1]
+    key = query.data.split(":", 1)[1]
+    filename = _deref(key) or key
     path = Path(DOWNLOAD_DIR) / filename
     try:
         if path.is_dir():
