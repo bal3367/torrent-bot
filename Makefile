@@ -1,4 +1,4 @@
-.PHONY: install start stop restart update help
+.PHONY: install start stop restart update uninstall help
 
 # Default: install + start
 all: install
@@ -23,10 +23,14 @@ update:
 	@bash start.sh
 	@echo "✅ Updated & restarted"
 
+uninstall:
+	@bash uninstall.sh
+
 help:
 	@echo "Torrent Bot Commands:"
-	@echo "  make          → install semua & start"
-	@echo "  make start    → start bot"
-	@echo "  make stop     → stop bot"
-	@echo "  make restart  → restart bot"
-	@echo "  make update   → pull update terbaru & restart"
+	@echo "  make            → install semua & start"
+	@echo "  make start      → start bot"
+	@echo "  make stop       → stop bot"
+	@echo "  make restart    → restart bot"
+	@echo "  make update     → pull update terbaru & restart"
+	@echo "  make uninstall  → hapus bot dari VPS"

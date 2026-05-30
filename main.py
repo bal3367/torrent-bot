@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 import tempfile
@@ -28,6 +29,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", 0))
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/home/ubuntu/torrent_bot/downloads")
+_REFS_FILE = Path(__file__).parent / "file_refs.json"
 VPS_IP = os.getenv("VPS_IP", "localhost")
 FILE_SERVER_PORT = os.getenv("FILE_SERVER_PORT", "8080")
 
@@ -83,6 +85,11 @@ def reply_keyboard():
 # ── File ref registry ──────────────────────────────────────────────────────────
 # Telegram callback_data max 64 bytes. Nama file bisa panjang → pakai short ID.
 _file_refs: dict[str, str] = {}   # "f0", "f1", ... -> filename (bukan full path)
+if _REFS_FILE.exists():
+    try:
+        _file_refs = json.loads(_REFS_FILE.read_text())
+    except Exception:
+        _file_refs = {}
 
 
 def _ref(filename: str) -> str:
@@ -93,6 +100,11 @@ def _ref(filename: str) -> str:
             return k
     key = f"f{len(_file_refs)}"
     _file_refs[key] = filename
+    # Persist supaya survive restart
+    try:
+        _REFS_FILE.write_text(json.dumps(_file_refs, ensure_ascii=False))
+    except Exception:
+        pass
     return key
 
 

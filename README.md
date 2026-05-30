@@ -19,12 +19,27 @@ cd ~/torrent_bot && make update
 ## 🛠 Commands
 
 ```bash
-make            # install & start
-make start      # start bot
-make stop       # stop bot
-make restart    # restart bot
-make update     # pull update terbaru & restart
+make              # install & start
+make start        # start bot
+make stop         # stop bot
+make restart      # restart bot
+make update       # pull update terbaru & restart
+make uninstall    # hapus bot dari VPS
 ```
+
+## 🗑 Uninstall
+
+```bash
+bash ~/torrent_bot/uninstall.sh
+```
+
+Atau satu command langsung dari internet:
+
+```bash
+curl -sL https://raw.githubusercontent.com/bal3367/torrent-bot/main/uninstall.sh | bash
+```
+
+Script akan tanya konfirmasi, minta pilihan hapus downloads atau tidak, lalu stop semua proses (bot, aria2c, cloudflared) dan hapus folder bot.
 
 ## ⚠️ Multi-VPS
 
