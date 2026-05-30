@@ -2,7 +2,24 @@
 # Torrent Bot — Uninstaller
 set -e
 
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Ketika dijalankan via "curl | bash", $0 adalah bash/stdin bukan path file.
+# Selalu hardcode ke lokasi instalasi standar.
+INSTALL_DIR="/home/ubuntu/torrent_bot"
+# Fallback: kalau dijalankan langsung dari dalam folder bot
+if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/main.py" ]; then
+    INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# Safety check — jangan hapus root/home directory
+if [ "$INSTALL_DIR" = "/" ] || [ "$INSTALL_DIR" = "$HOME" ] || [ "$INSTALL_DIR" = "/root" ] || [ "$INSTALL_DIR" = "/home" ]; then
+    echo "❌ ERROR: INSTALL_DIR tidak aman: $INSTALL_DIR — batalkan uninstall."
+    exit 1
+fi
+
+if [ ! -f "$INSTALL_DIR/main.py" ]; then
+    echo "❌ ERROR: main.py tidak ditemukan di $INSTALL_DIR — bukan folder torrent bot."
+    exit 1
+fi
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  ✅ $1${NC}"; }
 info() { echo -e "${BLUE}  ▶ $1${NC}"; }
