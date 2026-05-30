@@ -36,6 +36,18 @@ else
     echo "aria2c started."
 fi
 
+# Auto-detect port bebas mulai dari FILE_SERVER_PORT
+_PORT="${FILE_SERVER_PORT:-8080}"
+while ss -tlnp 2>/dev/null | grep -q ":$_PORT "; do
+    echo "Port $_PORT sudah dipakai, coba $((_PORT+1))..."
+    _PORT=$((_PORT + 1))
+done
+if [ "$_PORT" != "${FILE_SERVER_PORT:-8080}" ]; then
+    echo "FILE_SERVER_PORT diubah ke $_PORT (port lama dipakai proses lain)"
+    sed -i "s/^FILE_SERVER_PORT=.*/FILE_SERVER_PORT=$_PORT/" .env
+    export FILE_SERVER_PORT=$_PORT
+fi
+
 # Kill existing processes
 screen -S torrent_bot -X quit 2>/dev/null || true
 screen -S torrent_fileserver -X quit 2>/dev/null || true
