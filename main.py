@@ -961,7 +961,6 @@ async def cmd_storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(app: Application):
     Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
-    asyncio.create_task(start_file_server())
     asyncio.create_task(notify_loop(app.bot))
     # Start Cloudflare tunnel
     cf_url = await tun.start_tunnel(int(FILE_SERVER_PORT))

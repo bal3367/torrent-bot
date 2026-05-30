@@ -19,3 +19,7 @@ async def start_file_server():
     print(f"File server running on port {FILE_SERVER_PORT}")
     while True:
         await asyncio.sleep(3600)
+
+
+if __name__ == "__main__":
+    asyncio.run(start_file_server())
