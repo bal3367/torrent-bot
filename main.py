@@ -487,8 +487,21 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
     size = a2.format_size(size_bytes)
     import urllib.parse
+    import socket as _socket
+    # Health check: apakah file server port 8080 beneran up?
+    _fs_port = int(FILE_SERVER_PORT)
+    try:
+        with _socket.create_connection(("127.0.0.1", _fs_port), timeout=2):
+            _fs_up = True
+    except OSError:
+        _fs_up = False
+    logger.info(f"[fileinfo] file_server port={_fs_port} up={_fs_up} | tunnel_url={tun.tunnel_url!r}")
+    if not _fs_up:
+        logger.error(f"[fileinfo] FILE SERVER DOWN pada port {_fs_port} — CF link akan 502!")
     base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     label_link = "🌐 Download (CF)" if tun.tunnel_url else "⬇ HTTP Link"
+    if not _fs_up:
+        label_link = "⚠️ Server Mati (CF)"
 
     if path.is_dir():
         zip_name = filename + ".zip"
