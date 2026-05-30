@@ -30,7 +30,7 @@ make uninstall    # hapus bot dari VPS
 ## 🗑 Uninstall
 
 ```bash
-bash ~/torrent_bot/uninstall.sh
+bash /home/ubuntu/torrent_bot/uninstall.sh
 ```
 
 Atau satu command langsung dari internet:
