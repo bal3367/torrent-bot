@@ -1045,16 +1045,19 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_dodelete, pattern=r"^dodelete:"))
     app.add_handler(CallbackQueryHandler(cb_canceldelete, pattern=r"^canceldelete$"))
 
-    print("Bot started.")
+    # Kalau ada instance lain yang start (VPS baru), VPS lama langsung stop —
+    # tidak perlu rebutan. Instance baru otomatis menang dan jalan bersih.
     from telegram.error import Conflict as _TgConflict
-    for _attempt in range(20):
-        try:
-            app.run_polling(drop_pending_updates=True)
-            break
-        except _TgConflict:
-            _wait = min(30 * (_attempt + 1), 300)
-            print(f"[Conflict] instance lain masih jalan, retry {_attempt+1}/20 dalam {_wait}s...")
-            time.sleep(_wait)
+
+    async def _on_conflict(update, context):
+        if isinstance(context.error, _TgConflict):
+            logger.warning("[conflict] Instance baru aktif — VPS ini stop otomatis.")
+            await context.application.stop()
+
+    app.add_error_handler(_on_conflict)
+
+    print("Bot started.")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
