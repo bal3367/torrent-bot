@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -25,6 +26,16 @@ import tunnel as tun
 import servers as srv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(Path(__file__).parent / "debug.log"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", 0))
@@ -94,23 +105,24 @@ if _REFS_FILE.exists():
 
 def _ref(filename: str) -> str:
     """Daftar filename, return short key yang aman untuk callback_data."""
-    # Cari key yang sudah ada untuk filename ini
     for k, v in _file_refs.items():
         if v == filename:
             return k
     key = f"f{len(_file_refs)}"
     _file_refs[key] = filename
-    # Persist supaya survive restart
     try:
         _REFS_FILE.write_text(json.dumps(_file_refs, ensure_ascii=False))
-    except Exception:
-        pass
+        logger.info(f"[_ref] saved {key}={filename!r} → {_REFS_FILE}")
+    except Exception as e:
+        logger.error(f"[_ref] failed to persist refs: {e}")
     return key
 
 
 def _deref(key: str) -> str | None:
     """Kembalikan filename dari key, atau None kalau tidak ketemu."""
-    return _file_refs.get(key)
+    result = _file_refs.get(key)
+    logger.info(f"[_deref] {key!r} → {result!r} (total refs: {len(_file_refs)})")
+    return result
 
 
 def main_menu_keyboard():
@@ -462,11 +474,12 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     key = query.data.split(":", 1)[1]
-    # key bisa berupa short ref (f0, f1, ...) atau nama langsung (backwards compat)
     filename = _deref(key) or key
     path = Path(DOWNLOAD_DIR) / filename
+    logger.info(f"[fileinfo] key={key!r} → filename={filename!r} | exists={path.exists()} | refs_loaded={list(_file_refs.items())[:5]}")
     if not path.exists():
-        await query.edit_message_text("File tidak ditemukan.")
+        logger.warning(f"[fileinfo] FILE NOT FOUND: {path} | DOWNLOAD_DIR={DOWNLOAD_DIR} | refs={dict(_file_refs)}")
+        await query.edit_message_text(f"❌ File tidak ditemukan.\n`{filename}`", parse_mode="Markdown")
         return
     if path.is_file():
         size_bytes = path.stat().st_size
