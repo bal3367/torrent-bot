@@ -39,17 +39,24 @@ fi
 # Kill existing processes
 screen -S torrent_bot -X quit 2>/dev/null || true
 screen -S torrent_fileserver -X quit 2>/dev/null || true
+screen -S torrent_tunnel -X quit 2>/dev/null || true
 pkill -f "python3 main.py" 2>/dev/null || true
 pkill -f "python3 file_server.py" 2>/dev/null || true
+pkill -x cloudflared 2>/dev/null || true
+rm -f tunnel_url.txt
 sleep 1
 
-# Start file server in its own screen (independent dari bot)
+# Start file server in its own screen
 if [ -d venv ]; then
     screen -dmS torrent_fileserver bash -c "source venv/bin/activate && python3 file_server.py 2>&1 | tee -a fileserver.log"
 else
     screen -dmS torrent_fileserver bash -c "python3 file_server.py 2>&1 | tee -a fileserver.log"
 fi
 echo "File server berjalan di screen 'torrent_fileserver' (port $FILE_SERVER_PORT)."
+
+# Start cloudflared in its own screen
+screen -dmS torrent_tunnel bash -c "bash start_tunnel.sh 2>&1 | tee -a tunnel.log"
+echo "Cloudflared berjalan di screen 'torrent_tunnel'."
 
 # Start bot in screen
 if [ -d venv ]; then

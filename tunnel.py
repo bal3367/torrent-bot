@@ -1,69 +1,26 @@
-"""Cloudflare quick tunnel — expose local file server ke public HTTPS URL."""
+"""Cloudflare tunnel URL reader — URL ditulis oleh start_tunnel.sh ke tunnel_url.txt."""
 import asyncio
 import logging
-import re
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 tunnel_url: str | None = None
-_proc = None
-
-
-async def _drain(stream):
-    """Terus baca stream agar pipe tidak penuh dan cloudflared tidak mati."""
-    try:
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-    except Exception:
-        pass
+_URL_FILE = Path(__file__).parent / "tunnel_url.txt"
 
 
 async def start_tunnel(port: int) -> str | None:
-    """
-    Jalankan cloudflared quick tunnel ke localhost:port.
-    Return public URL (https://xxxx.trycloudflare.com) atau None jika gagal.
-    """
-    global tunnel_url, _proc
-    try:
-        logger.info(f"[tunnel] Starting cloudflared tunnel → localhost:{port}")
-        _proc = await asyncio.create_subprocess_exec(
-            "cloudflared", "tunnel", "--url", f"http://localhost:{port}",
-            "--no-autoupdate",
-            stderr=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.DEVNULL,
-        )
-        found_url = None
-        while True:
-            try:
-                line = await asyncio.wait_for(_proc.stderr.readline(), timeout=30)
-            except asyncio.TimeoutError:
-                logger.error("[tunnel] Timeout 30s — cloudflared tidak mengeluarkan URL")
-                break
-            if not line:
-                logger.warning("[tunnel] cloudflared stderr closed tanpa URL")
-                break
-            decoded = line.decode(errors="ignore").strip()
-            if decoded:
-                logger.info(f"[tunnel] cloudflared: {decoded}")
-            match = re.search(r'https://[a-z0-9\-]+\.trycloudflare\.com', decoded)
-            if match:
-                found_url = match.group()
-                break
-
-        if found_url:
-            tunnel_url = found_url
-            logger.info(f"[tunnel] ✅ Tunnel aktif: {tunnel_url}")
-            asyncio.create_task(_drain(_proc.stderr))
-            return tunnel_url
-
-        logger.error("[tunnel] ❌ Gagal dapat URL dari cloudflared")
-
-    except FileNotFoundError:
-        logger.error("[tunnel] cloudflared tidak terinstall (FileNotFoundError)")
-        return None
-    except Exception as e:
-        logger.error(f"[tunnel] Exception: {e}")
-        return None
+    """Tunggu sampai start_tunnel.sh menulis URL ke tunnel_url.txt (max 40 detik)."""
+    global tunnel_url
+    _URL_FILE.unlink(missing_ok=True)
+    logger.info(f"[tunnel] Waiting for cloudflared URL from {_URL_FILE} (port={port})")
+    for _ in range(40):
+        await asyncio.sleep(1)
+        if _URL_FILE.exists():
+            url = _URL_FILE.read_text().strip()
+            if url.startswith("https://"):
+                tunnel_url = url
+                logger.info(f"[tunnel] ✅ Tunnel aktif: {tunnel_url}")
+                return tunnel_url
+    logger.error("[tunnel] ❌ Timeout — cloudflared URL tidak muncul dalam 40 detik")
     return None

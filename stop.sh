@@ -16,6 +16,12 @@ if screen -list 2>/dev/null | grep -q "torrent_fileserver"; then
 fi
 pkill -f "python3 file_server.py" 2>/dev/null || true
 
+# Stop cloudflared tunnel
+if screen -list 2>/dev/null | grep -q "torrent_tunnel"; then
+    screen -S torrent_tunnel -X quit
+    echo "✅ Cloudflared tunnel stopped."
+fi
+
 # Stop aria2c
 if pgrep -x aria2c > /dev/null; then
     pkill -x aria2c
