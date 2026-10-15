@@ -125,6 +125,21 @@ def _deref(key: str) -> str | None:
     return result
 
 
+def _dir_stats(path: Path) -> tuple[int, int]:
+    """(jumlah file, total bytes) rekursif — aman kalau ada file yang hilang
+    di tengah jalan karena masih didownload aria2."""
+    count = 0
+    total = 0
+    for f in path.rglob("*"):
+        try:
+            if f.is_file():
+                count += 1
+                total += f.stat().st_size
+        except OSError:
+            continue
+    return count, total
+
+
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📥 Tambah Torrent", callback_data="menu:add")],
@@ -481,20 +496,26 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"[fileinfo] FILE NOT FOUND: {path} | DOWNLOAD_DIR={DOWNLOAD_DIR} | refs={dict(_file_refs)}")
         await query.edit_message_text(f"❌ File tidak ditemukan.\n`{filename}`", parse_mode="Markdown")
         return
+    dir_file_count = 0
     if path.is_file():
         size_bytes = path.stat().st_size
     else:
-        size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        dir_file_count, size_bytes = _dir_stats(path)
     size = a2.format_size(size_bytes)
     import urllib.parse
     import socket as _socket
-    # Health check: apakah file server port 8080 beneran up?
+    # Health check: apakah file server port beneran up? (non-blocking,
+    # socket sync dijalankan di thread pool biar nggak macetin event loop)
     _fs_port = int(FILE_SERVER_PORT)
-    try:
-        with _socket.create_connection(("127.0.0.1", _fs_port), timeout=2):
-            _fs_up = True
-    except OSError:
-        _fs_up = False
+
+    def _check_fs_port() -> bool:
+        try:
+            with _socket.create_connection(("127.0.0.1", _fs_port), timeout=2):
+                return True
+        except OSError:
+            return False
+
+    _fs_up = await asyncio.get_event_loop().run_in_executor(None, _check_fs_port)
     logger.info(f"[fileinfo] file_server port={_fs_port} up={_fs_up} | tunnel_url={tun.tunnel_url!r}")
     if not _fs_up:
         logger.error(f"[fileinfo] FILE SERVER DOWN pada port {_fs_port} — CF link akan 502!")
@@ -522,7 +543,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
-        info = f"📁 *{filename}*\nUkuran: {size} ({sum(1 for _ in path.rglob('*') if _.is_file())} file)"
+        info = f"📁 *{filename}*\nUkuran: {size} ({dir_file_count} file)"
         if zip_exists:
             info += f"\n✅ ZIP sudah ada → [download]({zip_link})"
     else:
@@ -561,7 +582,7 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if path.is_file():
         size_bytes = path.stat().st_size
     else:
-        size_bytes = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        _, size_bytes = _dir_stats(path)
 
     LIMIT = 45 * 1024 * 1024  # 45 MB
 
@@ -1049,12 +1070,34 @@ def main():
     # tidak perlu rebutan. Instance baru otomatis menang dan jalan bersih.
     from telegram.error import Conflict as _TgConflict
 
-    async def _on_conflict(update, context):
+    async def _on_error(update, context):
         if isinstance(context.error, _TgConflict):
             logger.warning("[conflict] Instance baru aktif — VPS ini stop otomatis.")
             await context.application.stop()
+            return
+        logger.error("Unhandled exception saat proses update", exc_info=context.error)
+        # Tanpa ini, error di dalam callback handler (klik tombol) cuma
+        # kelihatan di debug.log — user merasa "diklik tapi gak muncul apa-apa".
+        if isinstance(update, Update) and update.callback_query:
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                pass
+            try:
+                await update.callback_query.message.reply_text(
+                    f"⚠️ Terjadi error: {context.error}"
+                )
+            except Exception:
+                pass
+        elif isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    f"⚠️ Terjadi error: {context.error}"
+                )
+            except Exception:
+                pass
 
-    app.add_error_handler(_on_conflict)
+    app.add_error_handler(_on_error)
 
     print("Bot started.")
     app.run_polling(drop_pending_updates=True)
