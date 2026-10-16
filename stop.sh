@@ -1,6 +1,9 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+# Watchdog dulu — kalau tidak, dia menghidupkan lagi komponen yang sedang dimatikan di bawah.
+screen -S torrent_watchdog -X quit 2>/dev/null && echo "✅ Watchdog stopped." || true
+
 # Stop bot
 if screen -list 2>/dev/null | grep -q "torrent_bot"; then
     screen -S torrent_bot -X quit

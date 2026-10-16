@@ -9,7 +9,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", 0))
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/home/ubuntu/torrent_bot/downloads")
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 DISK_THRESHOLD = int(os.getenv("DISK_ALERT_THRESHOLD", 80))
 
 _notified_gids: set[str] = set()

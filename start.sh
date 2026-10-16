@@ -1,27 +1,46 @@
 #!/bin/bash
-set -e
+# Torrent Bot — start semua komponen, atau satu komponen saja.
+#   bash start.sh              → (re)start semua: aria2, file server, tunnel, bot, watchdog
+#   bash start.sh aria2|fileserver|tunnel|bot|watchdog
+#                              → (re)start komponen itu saja (dipakai watchdog.sh untuk self-heal)
+# Jalan di VPS mana saja: semua path relatif ke folder bot, user/IP/port dideteksi sendiri
+# kalau tidak diisi di .env (lihat .env.example).
 
 cd "$(dirname "$0")"
-source .env
-
-# Start aria2c daemon
-# - Sesi disimpan (aria2.session) supaya stop/restart/update tidak menghapus antrian download.
-# - Log level notice di folder bot: tanpa --log-level aria2 menulis DEBUG (beberapa baris per 16 KB
-#   yang diterima) dan, karena --daemon pindah ke /, filenya ada di /aria2.log dan cepat memenuhi disk.
-# - DHT entry point + tracker cadangan: aria2 tidak punya bootstrap DHT bawaan, tanpa ini peer cuma
-#   dari tracker bawaan torrent.
 BOT_DIR="$(pwd)"
+[ -f .env ] || { echo "❌ .env tidak ada — copy dari .env.example dulu."; exit 1; }
+set -a; source .env; set +a
+
+# ── Default global (berlaku kalau .env kosong) ─────────────────────────────
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-$BOT_DIR/downloads}"
+ARIA2_PORT="${ARIA2_PORT:-6800}"
+FILE_SERVER_PORT="${FILE_SERVER_PORT:-8080}"
+export DOWNLOAD_DIR ARIA2_PORT FILE_SERVER_PORT
+mkdir -p "$DOWNLOAD_DIR"
+
+if [ -d venv ]; then PY_RUN="source venv/bin/activate && python3"; else PY_RUN="python3"; fi
+
+port_busy() {
+    if command -v ss >/dev/null 2>&1; then ss -tln 2>/dev/null | grep -q ":$1 "
+    else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
+}
+
+# ── aria2 ──────────────────────────────────────────────────────────────────
+# - Sesi disimpan (aria2.session) supaya stop/restart/update tidak menghapus antrian download.
+# - Log level notice di folder bot (tanpa --log-level aria2 menulis DEBUG; --daemon pindah ke /).
+# - DHT entry point + tracker cadangan: aria2 tidak punya bootstrap DHT bawaan.
 ARIA2_SESSION="$BOT_DIR/aria2.session"
-touch "$ARIA2_SESSION"
-BT_TRACKERS="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://tracker.openbittorrent.com:6969/announce,udp://explodie.org:6969/announce"
-if pgrep -x aria2c > /dev/null; then
-    echo "aria2c sudah berjalan."
-else
-    mkdir -p "$DOWNLOAD_DIR"
+BT_TRACKERS="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://tracker.openbittorrent.com:6969/announce,udp://explodie.org:6969/announce,http://tracker.opentrackr.org:1337/announce"
+start_aria2() {
+    if pgrep -x aria2c > /dev/null; then
+        pkill -x aria2c   # SIGTERM: aria2 menulis sesinya dulu sebelum keluar
+        for _ in $(seq 1 20); do pgrep -x aria2c > /dev/null || break; sleep 0.5; done
+    fi
+    touch "$ARIA2_SESSION"
     aria2c \
         --enable-rpc \
         --rpc-listen-all=false \
-        --rpc-listen-port="${ARIA2_PORT:-6800}" \
+        --rpc-listen-port="$ARIA2_PORT" \
         --rpc-secret="$ARIA2_SECRET" \
         --dir="$DOWNLOAD_DIR" \
         --input-file="$ARIA2_SESSION" \
@@ -50,59 +69,83 @@ else
         --log="$BOT_DIR/aria2.log" \
         --log-level=notice
     echo "aria2c started."
-    # Download yang diselamatkan stop.sh dari aria2 versi lama (tanpa sesi): tambahkan lagi,
-    # aria2 melanjutkan dari file yang sudah ada (--continue + cek integritas).
+    # Download yang diselamatkan stop.sh dari aria2 versi lama (tanpa sesi): tambahkan lagi.
     if [ -s "$BOT_DIR/pending_magnets.txt" ]; then
         sleep 2
         while IFS= read -r uri; do
             [ -z "$uri" ] && continue
-            curl -s "http://localhost:${ARIA2_PORT:-6800}/jsonrpc" \
+            curl -s "http://127.0.0.1:$ARIA2_PORT/jsonrpc" \
                 -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"aria2.addUri\",\"params\":[\"token:$ARIA2_SECRET\",[\"$uri\"]]}" > /dev/null \
                 && echo "↻ Dilanjutkan: ${uri:0:80}"
         done < "$BOT_DIR/pending_magnets.txt"
         mv "$BOT_DIR/pending_magnets.txt" "$BOT_DIR/pending_magnets.done"
     fi
-fi
+}
 
-# Auto-detect port bebas mulai dari FILE_SERVER_PORT
-_PORT="${FILE_SERVER_PORT:-8080}"
-while ss -tlnp 2>/dev/null | grep -q ":$_PORT "; do
-    echo "Port $_PORT sudah dipakai, coba $((_PORT+1))..."
-    _PORT=$((_PORT + 1))
-done
-if [ "$_PORT" != "${FILE_SERVER_PORT:-8080}" ]; then
-    echo "FILE_SERVER_PORT diubah ke $_PORT (port lama dipakai proses lain)"
-    sed -i "s/^FILE_SERVER_PORT=.*/FILE_SERVER_PORT=$_PORT/" .env
-    export FILE_SERVER_PORT=$_PORT
-fi
+# ── File server ────────────────────────────────────────────────────────────
+start_fileserver() {
+    screen -S torrent_fileserver -X quit 2>/dev/null || true
+    pkill -f "python3 file_server.py" 2>/dev/null || true
+    sleep 1
+    # Port bebas dicari SETELAH file server lama mati — dulu dicek sebelumnya, jadi port file server
+    # sendiri dianggap "dipakai" dan naik satu tiap restart (8080 → 8081 → …).
+    local p="$FILE_SERVER_PORT"
+    while port_busy "$p"; do echo "Port $p dipakai proses lain, coba $((p+1))..."; p=$((p + 1)); done
+    if [ "$p" != "$FILE_SERVER_PORT" ]; then
+        sed -i "s/^FILE_SERVER_PORT=.*/FILE_SERVER_PORT=$p/" .env
+        grep -q "^FILE_SERVER_PORT=" .env || echo "FILE_SERVER_PORT=$p" >> .env
+        FILE_SERVER_PORT=$p; export FILE_SERVER_PORT
+        echo "FILE_SERVER_PORT diubah ke $p"
+    fi
+    screen -dmS torrent_fileserver bash -c "$PY_RUN file_server.py 2>&1 | tee -a fileserver.log"
+    echo "File server berjalan di screen 'torrent_fileserver' (port $FILE_SERVER_PORT)."
+}
 
-# Kill existing processes
-screen -S torrent_bot -X quit 2>/dev/null || true
-screen -S torrent_fileserver -X quit 2>/dev/null || true
-screen -S torrent_tunnel -X quit 2>/dev/null || true
-pkill -f "python3 main.py" 2>/dev/null || true
-pkill -f "python3 file_server.py" 2>/dev/null || true
-pkill -x cloudflared 2>/dev/null || true
-rm -f tunnel_url.txt
-sleep 1
+# ── Cloudflare tunnel ──────────────────────────────────────────────────────
+start_tunnel() {
+    screen -S torrent_tunnel -X quit 2>/dev/null || true
+    pkill -x cloudflared 2>/dev/null || true
+    rm -f tunnel_url.txt
+    sleep 1
+    if ! command -v cloudflared >/dev/null 2>&1; then
+        echo "⚠️  cloudflared tidak terpasang — link download pakai http://IP:port (jalankan install.sh)."
+        return
+    fi
+    screen -dmS torrent_tunnel bash -c "bash start_tunnel.sh 2>&1 | tee -a tunnel.log"
+    echo "Cloudflared berjalan di screen 'torrent_tunnel'."
+}
 
-# Start file server in its own screen
-if [ -d venv ]; then
-    screen -dmS torrent_fileserver bash -c "source venv/bin/activate && python3 file_server.py 2>&1 | tee -a fileserver.log"
-else
-    screen -dmS torrent_fileserver bash -c "python3 file_server.py 2>&1 | tee -a fileserver.log"
-fi
-echo "File server berjalan di screen 'torrent_fileserver' (port $FILE_SERVER_PORT)."
+# ── Bot ────────────────────────────────────────────────────────────────────
+start_bot() {
+    rm -f yielded.flag  # start manual / watchdog = instance ini yang aktif lagi
+    screen -S torrent_bot -X quit 2>/dev/null || true
+    pkill -f "python3 main.py" 2>/dev/null || true
+    sleep 1
+    screen -dmS torrent_bot bash -c "$PY_RUN main.py 2>&1 | tee -a bot.log"
+    echo "Bot berjalan di screen 'torrent_bot'."
+}
 
-# Start cloudflared in its own screen
-screen -dmS torrent_tunnel bash -c "bash start_tunnel.sh 2>&1 | tee -a tunnel.log"
-echo "Cloudflared berjalan di screen 'torrent_tunnel'."
+# ── Watchdog (self-heal) ───────────────────────────────────────────────────
+start_watchdog() {
+    screen -S torrent_watchdog -X quit 2>/dev/null || true
+    screen -dmS torrent_watchdog bash -c "bash watchdog.sh 2>&1 | tee -a watchdog.log"
+    echo "Watchdog berjalan di screen 'torrent_watchdog' (cek & perbaiki otomatis tiap 30 detik)."
+}
 
-# Start bot in screen
-if [ -d venv ]; then
-    screen -dmS torrent_bot bash -c "source venv/bin/activate && python3 main.py 2>&1 | tee -a bot.log"
-else
-    screen -dmS torrent_bot bash -c "python3 main.py 2>&1 | tee -a bot.log"
-fi
-echo "Bot berjalan di screen 'torrent_bot'."
-echo "Lihat log: tail -f bot.log  |  screen -r torrent_bot"
+case "${1:-all}" in
+    aria2)      start_aria2 ;;
+    fileserver) start_fileserver ;;
+    tunnel)     start_tunnel ;;
+    bot)        start_bot ;;
+    watchdog)   start_watchdog ;;
+    all)
+        screen -S torrent_watchdog -X quit 2>/dev/null || true  # jangan sampai watchdog ikut restart di tengah jalan
+        pgrep -x aria2c > /dev/null && echo "aria2c sudah berjalan." || start_aria2
+        start_fileserver
+        start_tunnel
+        start_bot
+        start_watchdog
+        echo "Lihat log: tail -f bot.log  |  tail -f watchdog.log"
+        ;;
+    *) echo "Pemakaian: bash start.sh [all|aria2|fileserver|tunnel|bot|watchdog]"; exit 1 ;;
+esac

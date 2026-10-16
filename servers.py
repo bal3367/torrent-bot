@@ -28,14 +28,19 @@ def save_servers(servers: list[dict]):
     _save(servers)
 
 
-def register_self(label: str, ip: str, file_server_port: str, tunnel_url: str | None = None):
-    """Register atau update entry VPS ini di servers.json."""
+def register_self(label: str, ip: str, file_server_port: str, tunnel_url: str | None = None,
+                  ssh_user: str | None = None, ssh_port: str | None = None, download_dir: str | None = None):
+    """Register atau update entry VPS ini di servers.json (termasuk user/port SSH & folder download,
+    supaya command SCP di Server List benar untuk tiap VPS)."""
     servers = _load()
+    extra = {k: v for k, v in (("ssh_user", ssh_user), ("ssh_port", ssh_port), ("download_dir", download_dir)) if v}
     # Cari berdasarkan IP
     for s in servers:
         if s.get("ip") == ip:
             s["tunnel_url"] = tunnel_url
             s["label"] = label or s.get("label", ip)
+            s["file_server_port"] = file_server_port
+            s.update(extra)
             _save(servers)
             return
     # Belum ada, tambah baru
@@ -46,6 +51,7 @@ def register_self(label: str, ip: str, file_server_port: str, tunnel_url: str | 
         "tunnel_url": tunnel_url,
         "active": True,
         "notes": "",
+        **extra,
     })
     _save(servers)
 

@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/home/ubuntu/torrent_bot/downloads")
-FILE_SERVER_PORT = int(os.getenv("FILE_SERVER_PORT", 8080))
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+FILE_SERVER_PORT = int(os.getenv("FILE_SERVER_PORT") or 8080)
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 async def start_file_server():

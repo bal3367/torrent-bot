@@ -30,7 +30,7 @@ make uninstall    # hapus bot dari VPS
 ## 🗑 Uninstall
 
 ```bash
-bash /home/ubuntu/torrent_bot/uninstall.sh
+bash ~/torrent_bot/uninstall.sh
 ```
 
 Atau satu command langsung dari internet:
@@ -57,3 +57,25 @@ Mau pindah VPS? Stop dulu bot lama via Telegram → 🖥 Server List → 🗑 (a
 | 📋 SCP Command | Command PowerShell untuk download ke PC |
 | 🌐 CF Tunnel | Auto public HTTPS URL tiap startup |
 | 🖥 Server List | Manage multi-VPS, toggle, delete = stop |
+
+## ⚙️ Jalan di VPS mana saja
+
+Semua otomatis — path relatif ke folder bot, IP publik & user dideteksi sendiri. Override di `.env` kalau perlu:
+
+| Variabel | Default | Keterangan |
+|---|---|---|
+| `DOWNLOAD_DIR` | `~/torrent_bot/downloads` | folder hasil download |
+| `VPS_IP` | `auto` | IP publik, dideteksi saat start |
+| `SSH_USER` / `SSH_PORT` / `SSH_HOST` | user bot / `22` / IP | dipakai di command SCP (Vast.ai: isi `SSH_PORT`) |
+| `FILE_SERVER_PORT` | `8080` | kalau dipakai proses lain, otomatis pindah ke port bebas |
+
+## 🛠 Self-heal (watchdog)
+
+`make start` juga menjalankan watchdog (screen `torrent_watchdog`, log di `watchdog.log`). Tiap 30 detik ia mengecek:
+
+- **aria2** tidak menjawab → start ulang (antrian download aman, tersimpan di `aria2.session`)
+- **file server** mati → start ulang
+- **link Cloudflare** tidak bisa dibuka 3× berturut-turut → tunnel start ulang, **link baru dikirim ke Telegram**
+- **bot** mati → start ulang (kecuali sengaja berhenti karena bot yang sama aktif di VPS lain)
+
+Setiap perbaikan dilaporkan ke Telegram.

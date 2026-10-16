@@ -4,7 +4,7 @@ set -e
 
 # Ketika dijalankan via "curl | bash", $0 adalah bash/stdin bukan path file.
 # Selalu hardcode ke lokasi instalasi standar.
-INSTALL_DIR="/home/ubuntu/torrent_bot"
+INSTALL_DIR="$HOME/torrent_bot"
 # Fallback: kalau dijalankan langsung dari dalam folder bot
 if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/main.py" ]; then
     INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

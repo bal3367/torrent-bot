@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import getpass
 import os
 import shutil
 import tempfile
@@ -39,10 +40,44 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", 0))
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/home/ubuntu/torrent_bot/downloads")
-_REFS_FILE = Path(__file__).parent / "file_refs.json"
-VPS_IP = os.getenv("VPS_IP", "localhost")
-FILE_SERVER_PORT = os.getenv("FILE_SERVER_PORT", "8080")
+BOT_DIR = Path(__file__).parent
+# Default global: semua relatif ke folder bot / dideteksi sendiri, jadi jalan di VPS mana saja
+# (root di container, user ubuntu di VPS biasa, dst). Isi di .env kalau mau override.
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR") or str(BOT_DIR / "downloads")
+_REFS_FILE = BOT_DIR / "file_refs.json"
+FILE_SERVER_PORT = os.getenv("FILE_SERVER_PORT") or "8080"
+
+
+def _detect_public_ip() -> str:
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                ip = r.read().decode().strip()
+                if ip:
+                    return ip
+        except Exception:
+            continue
+    return "127.0.0.1"
+
+
+_env_ip = (os.getenv("VPS_IP") or "").strip()
+VPS_IP = _env_ip if _env_ip and _env_ip not in ("auto", "your_vps_public_ip", "localhost") else _detect_public_ip()
+SSH_USER = os.getenv("SSH_USER") or getpass.getuser()
+SSH_PORT = os.getenv("SSH_PORT") or "22"
+SSH_HOST = os.getenv("SSH_HOST") or VPS_IP
+
+
+def _scp_cmds(target: str, recursive: bool = False) -> tuple[str, str]:
+    """(Windows PowerShell, Mac/Linux) scp siap paste untuk VPS ini — user/port/host dari .env atau
+    terdeteksi otomatis, tujuan folder Downloads user sendiri (bukan YourName)."""
+    flag = "-r " if recursive else ""
+    port = f"-P {SSH_PORT} " if str(SSH_PORT) != "22" else ""
+    # Spasi / [ ] / quote di nama torrent: scp lama (Windows OpenSSH 8.x) memecah path di spasi lewat
+    # shell remote, scp baru (mode SFTP) membaca [ ] sebagai pola. '?' = wildcard 1 karakter, aman di keduanya.
+    target = "".join("?" if c in " []'\"`$*" else c for c in target)
+    win = f'scp {flag}{port}"{SSH_USER}@{SSH_HOST}:{target}" "$env:USERPROFILE\\Downloads\\"'
+    mac = f"scp {flag}{port}'{SSH_USER}@{SSH_HOST}:{target}' ~/Downloads/"
+    return win, mac
 
 
 def _update_download_dir(new_path: str) -> tuple[bool, str]:
@@ -645,7 +680,7 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         import urllib.parse
         base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
         link = f"{base_url}/{urllib.parse.quote(filename)}"
-        scp_cmd = f"scp ubuntu@{VPS_IP}:'{DOWNLOAD_DIR}/{filename}' ./"
+        scp_cmd = _scp_cmds(f"{DOWNLOAD_DIR}/{filename}")[0]
         if tun.current_url():
             msg = (
                 f"📦 {_code(filename)}\n"
@@ -687,18 +722,16 @@ async def cb_scpcmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         flag = ""
         display_name = filename
 
-    cmd_win = f'scp {flag}ubuntu@{VPS_IP}:"{target}" "C:\\Users\\YourName\\Downloads\\"'
-    cmd_mac = f"scp {flag}ubuntu@{VPS_IP}:'{target}' ~/Downloads/"
+    cmd_win, cmd_mac = _scp_cmds(target, recursive=bool(flag))
 
     await query.message.reply_text(
         f"📋 *SCP Command — Download Langsung (Speed Penuh)*\n"
         f"File: `{display_name}`\n\n"
         f"*Windows PowerShell:*\n"
-        f"`{cmd_win}`\n\n"
+        f"{_code(cmd_win)}\n\n"
         f"*Mac / Linux Terminal:*\n"
-        f"`{cmd_mac}`\n\n"
-        f"💡 Ganti `YourName` sesuai username Windows kamu.\n"
-        f"Port 22 SSH selalu terbuka — works di semua VPS provider.",
+        f"{_code(cmd_mac)}\n\n"
+        f"💡 Butuh SSH key VPS ini di komputer kamu. User/port salah? Isi SSH\\_USER / SSH\\_PORT di .env.",
         parse_mode="Markdown",
     )
 
@@ -856,8 +889,12 @@ async def cb_srv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         port = s.get("file_server_port", "8080")
         tunnel = s.get("tunnel_url") or "-"
         active = "✅ Enabled" if s.get("active", True) else "⏸ Disabled"
-        scp_win = f'scp -r ubuntu@{ip}:"/home/ubuntu/torrent_bot/downloads/" "C:\\Users\\YourName\\Downloads\\"'
-        scp_mac = f"scp -r ubuntu@{ip}:'/home/ubuntu/torrent_bot/downloads/' ~/Downloads/"
+        s_user = s.get("ssh_user") or "root"
+        s_port = s.get("ssh_port") or "22"
+        s_dir = (s.get("download_dir") or "~/torrent_bot/downloads").rstrip("/") + "/"
+        s_p = f"-P {s_port} " if str(s_port) != "22" else ""
+        scp_win = f'scp -r {s_p}"{s_user}@{ip}:{s_dir}" "$env:USERPROFILE\\Downloads\\"'
+        scp_mac = f"scp -r {s_p}'{s_user}@{ip}:{s_dir}' ~/Downloads/"
         text = (
             f"🖥 *{s['label']}*\n"
             f"IP: `{ip}:{port}`\n"
@@ -995,7 +1032,9 @@ async def cmd_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not path.exists():
         await update.message.reply_text("File tidak ditemukan.")
         return
-    link = f"http://{VPS_IP}:{FILE_SERVER_PORT}/{filename}"
+    import urllib.parse
+    base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    link = f"{base_url}/{urllib.parse.quote(filename)}"
     await update.message.reply_text(f"Link download:\n{link}")
 
 
@@ -1043,7 +1082,8 @@ async def post_init(app: Application):
     import socket
     _hostname = socket.gethostname()
     _label = os.getenv("SERVER_LABEL", _hostname)
-    srv.register_self(_label, VPS_IP, FILE_SERVER_PORT, cf_url)
+    srv.register_self(_label, VPS_IP, FILE_SERVER_PORT, cf_url,
+                      ssh_user=SSH_USER, ssh_port=SSH_PORT, download_dir=DOWNLOAD_DIR)
     # Startup notification
     try:
         import socket
@@ -1114,6 +1154,11 @@ def main():
     async def _on_error(update, context):
         if isinstance(context.error, _TgConflict):
             logger.warning("[conflict] Instance baru aktif — VPS ini stop otomatis.")
+            # Penanda untuk watchdog.sh: bot ini sengaja mengalah, jangan dihidupkan lagi.
+            try:
+                (BOT_DIR / "yielded.flag").write_text("conflict\n")
+            except Exception:
+                pass
             await context.application.stop()
             return
         logger.error("Unhandled exception saat proses update", exc_info=context.error)

@@ -152,7 +152,7 @@ if [ ! -f .env ]; then
              || curl -s --max-time 5 https://api.ipify.org 2>/dev/null \
              || curl -s --max-time 5 https://icanhazip.com 2>/dev/null \
              || echo "")
-    [ -n "$PUBLIC_IP" ] && sed -i "s/VPS_IP=your_vps_public_ip/VPS_IP=$PUBLIC_IP/" .env \
+    [ -n "$PUBLIC_IP" ] && sed -i "s/^VPS_IP=.*/VPS_IP=$PUBLIC_IP/" .env \
                         && ok "VPS IP: $PUBLIC_IP"
     # Auto-set SERVER_LABEL dari hostname
     HOSTNAME_VAL=$(hostname 2>/dev/null || echo "VPS")
