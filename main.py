@@ -162,7 +162,7 @@ def _ps_download(url: str, name: str) -> str:
     if not url.startswith("https://"):
         return ""
     safe = "".join(c for c in name if c not in '"`$')
-    cmd = f'curl.exe -L -C - --retry 5 -o "$env:USERPROFILE\\Downloads\\{safe}" "{url}"'
+    cmd = f'curl.exe -fL -C - --retry 5 -o "$env:USERPROFILE\\Downloads\\{safe}" "{url}"'
     return f"\n\n💻 *PowerShell* (tap untuk copy → paste → Enter):\n{_code(cmd)}"
 
 
