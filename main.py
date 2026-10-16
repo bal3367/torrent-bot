@@ -125,6 +125,21 @@ def _deref(key: str) -> str | None:
     return result
 
 
+def _code(text: str) -> str:
+    """Nama file aman untuk parse_mode="Markdown": dibungkus `kode`.
+
+    Nama torrent sering berisi _ * [ — di dalam *bold* itu bikin Telegram
+    menolak pesan ("Can't parse entities") dan tombol download tidak muncul.
+    Di dalam `kode` cuma backtick yang berbahaya.
+    """
+    return "`" + str(text).replace("`", "'") + "`"
+
+
+def _link(url: str, label: str = "⬇ Klik untuk download") -> str:
+    """Link Markdown; URL sudah di-quote jadi aman, beda dengan URL telanjang yang berisi _."""
+    return f"[{label}]({url})"
+
+
 def _dir_stats(path: Path) -> tuple[int, int]:
     """(jumlah file, total bytes) rekursif — aman kalau ada file yang hilang
     di tengah jalan karena masih didownload aria2."""
@@ -494,7 +509,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[fileinfo] key={key!r} → filename={filename!r} | exists={path.exists()} | refs_loaded={list(_file_refs.items())[:5]}")
     if not path.exists():
         logger.warning(f"[fileinfo] FILE NOT FOUND: {path} | DOWNLOAD_DIR={DOWNLOAD_DIR} | refs={dict(_file_refs)}")
-        await query.edit_message_text(f"❌ File tidak ditemukan.\n`{filename}`", parse_mode="Markdown")
+        await query.edit_message_text(f"❌ File tidak ditemukan.\n{_code(filename)}", parse_mode="Markdown")
         return
     dir_file_count = 0
     if path.is_file():
@@ -516,11 +531,11 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return False
 
     _fs_up = await asyncio.get_event_loop().run_in_executor(None, _check_fs_port)
-    logger.info(f"[fileinfo] file_server port={_fs_port} up={_fs_up} | tunnel_url={tun.tunnel_url!r}")
+    logger.info(f"[fileinfo] file_server port={_fs_port} up={_fs_up} | tunnel_url={tun.current_url()!r}")
     if not _fs_up:
         logger.error(f"[fileinfo] FILE SERVER DOWN pada port {_fs_port} — CF link akan 502!")
-    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
-    label_link = "🌐 Download (CF)" if tun.tunnel_url else "⬇ HTTP Link"
+    base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    label_link = "🌐 Download (CF)" if tun.current_url() else "⬇ HTTP Link"
     if not _fs_up:
         label_link = "⚠️ Server Mati (CF)"
 
@@ -543,9 +558,9 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Hapus Folder", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
-        info = f"📁 *{filename}*\nUkuran: {size} ({dir_file_count} file)"
+        info = f"📁 {_code(filename)}\nUkuran: {size} ({dir_file_count} file)"
         if zip_exists:
-            info += f"\n✅ ZIP sudah ada → [download]({zip_link})"
+            info += f"\n✅ ZIP sudah ada → {_link(zip_link, 'download')}"
     else:
         ref = _ref(filename)
         link = f"{base_url}/{urllib.parse.quote(filename)}"
@@ -558,7 +573,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
-        info = f"📄 *{filename}*\nUkuran: {size}\n🔗 `{link}`"
+        info = f"📄 {_code(filename)}\nUkuran: {size}\n🔗 {_code(link)}"
 
     await query.edit_message_text(
         info,
@@ -602,21 +617,21 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         # File terlalu besar — kirim link CF tunnel atau fallback SCP
         import urllib.parse
-        base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+        base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
         link = f"{base_url}/{urllib.parse.quote(filename)}"
         scp_cmd = f"scp ubuntu@{VPS_IP}:'{DOWNLOAD_DIR}/{filename}' ./"
-        if tun.tunnel_url:
+        if tun.current_url():
             msg = (
-                f"📦 *{filename}*\n"
+                f"📦 {_code(filename)}\n"
                 f"Ukuran: {a2.format_size(size_bytes)}\n\n"
-                f"🌐 *Download via browser* (klik link):\n"
-                f"{link}"
+                f"🌐 *Download via browser:*\n"
+                f"{_link(link)}"
             )
         else:
             msg = (
                 f"⚠️ *File terlalu besar untuk Telegram* ({a2.format_size(size_bytes)})\n\n"
-                f"*Cara 1 — HTTP* (buka port 8080 di cloud console):\n`{link}`\n\n"
-                f"*Cara 2 — SCP* (pakai terminal/WinSCP):\n`{scp_cmd}`"
+                f"*Cara 1 — HTTP* (buka port {FILE_SERVER_PORT} di cloud console):\n{_code(link)}\n\n"
+                f"*Cara 2 — SCP* (pakai terminal/WinSCP):\n{_code(scp_cmd)}"
             )
         await query.message.reply_text(msg, parse_mode="Markdown")
 
@@ -687,10 +702,10 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if zip_path.exists():
         # Sudah ada, langsung kirim link
         import urllib.parse
-        base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+        base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
         link = f"{base_url}/{urllib.parse.quote(zip_name)}"
         await query.message.reply_text(
-            f"✅ ZIP sudah ada!\n🌐 Download: {link}", parse_mode="Markdown"
+            f"✅ ZIP sudah ada!\n🌐 {_link(link)}", parse_mode="Markdown"
         )
         return
 
@@ -698,7 +713,7 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     total = sum(f.stat().st_size for f in src_path.rglob("*") if f.is_file())
     msg = await query.message.reply_text(
         f"⏳ *Membuat ZIP...*\n"
-        f"📦 {filename}\n"
+        f"📦 {_code(filename)}\n"
         f"Ukuran: {a2.format_size(total)}\n\n"
         f"Mohon tunggu, ini mungkin butuh beberapa menit...",
         parse_mode="Markdown",
@@ -714,15 +729,15 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     zip_size = a2.format_size(zip_path.stat().st_size)
     import urllib.parse
-    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     link = f"{base_url}/{urllib.parse.quote(zip_name)}"
     scp_win = f'scp ubuntu@{VPS_IP}:"{DOWNLOAD_DIR}/{zip_name}" "C:\\Users\\YourName\\Downloads\\"'
     await msg.edit_text(
         f"✅ *ZIP selesai!*\n"
-        f"📦 `{zip_name}`\n"
+        f"📦 {_code(zip_name)}\n"
         f"Ukuran: {zip_size}\n\n"
-        f"🌐 *Browser (CF Tunnel):*\n{link}\n\n"
-        f"⚡ *PowerShell (speed penuh):*\n`{scp_win}`",
+        f"🌐 *Browser (CF Tunnel):*\n{_link(link)}\n\n"
+        f"⚡ *PowerShell (speed penuh):*\n{_code(scp_win)}",
         parse_mode="Markdown",
     )
 
@@ -736,11 +751,11 @@ async def cb_zipready(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     zip_name = filename + ".zip"
     zip_path = Path(DOWNLOAD_DIR) / zip_name
     import urllib.parse
-    base_url = tun.tunnel_url or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
+    base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     link = f"{base_url}/{urllib.parse.quote(zip_name)}"
     size = a2.format_size(zip_path.stat().st_size) if zip_path.exists() else "?"
     await query.message.reply_text(
-        f"📦 *{zip_name}*\nUkuran: {size}\n\n🌐 Download: {link}",
+        f"📦 {_code(zip_name)}\nUkuran: {size}\n\n🌐 {_link(link)}",
         parse_mode="Markdown",
     )
 
