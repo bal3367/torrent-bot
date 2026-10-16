@@ -6,3 +6,6 @@ __pycache__/
 venv/
 *.torrent
 servers.json
+aria2.session
+pending_magnets.txt
+pending_magnets.done

@@ -5,6 +5,15 @@ cd "$(dirname "$0")"
 source .env
 
 # Start aria2c daemon
+# - Sesi disimpan (aria2.session) supaya stop/restart/update tidak menghapus antrian download.
+# - Log level notice di folder bot: tanpa --log-level aria2 menulis DEBUG (beberapa baris per 16 KB
+#   yang diterima) dan, karena --daemon pindah ke /, filenya ada di /aria2.log dan cepat memenuhi disk.
+# - DHT entry point + tracker cadangan: aria2 tidak punya bootstrap DHT bawaan, tanpa ini peer cuma
+#   dari tracker bawaan torrent.
+BOT_DIR="$(pwd)"
+ARIA2_SESSION="$BOT_DIR/aria2.session"
+touch "$ARIA2_SESSION"
+BT_TRACKERS="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://tracker.openbittorrent.com:6969/announce,udp://explodie.org:6969/announce"
 if pgrep -x aria2c > /dev/null; then
     echo "aria2c sudah berjalan."
 else
@@ -15,6 +24,10 @@ else
         --rpc-listen-port="${ARIA2_PORT:-6800}" \
         --rpc-secret="$ARIA2_SECRET" \
         --dir="$DOWNLOAD_DIR" \
+        --input-file="$ARIA2_SESSION" \
+        --save-session="$ARIA2_SESSION" \
+        --save-session-interval=30 \
+        --force-save=false \
         --max-download-limit="${MAX_DOWNLOAD_SPEED:-0}" \
         --max-upload-limit="${MAX_UPLOAD_SPEED:-0}" \
         --continue=true \
@@ -24,6 +37,8 @@ else
         --max-concurrent-downloads=5 \
         --bt-enable-lpd=true \
         --enable-dht=true \
+        --dht-entry-point=dht.transmissionbt.com:6881 \
+        --bt-tracker="$BT_TRACKERS" \
         --enable-peer-exchange=true \
         --bt-max-peers=100 \
         --seed-time=0 \
@@ -32,8 +47,21 @@ else
         --check-integrity=true \
         --auto-file-renaming=true \
         --daemon=true \
-        --log=aria2.log
+        --log="$BOT_DIR/aria2.log" \
+        --log-level=notice
     echo "aria2c started."
+    # Download yang diselamatkan stop.sh dari aria2 versi lama (tanpa sesi): tambahkan lagi,
+    # aria2 melanjutkan dari file yang sudah ada (--continue + cek integritas).
+    if [ -s "$BOT_DIR/pending_magnets.txt" ]; then
+        sleep 2
+        while IFS= read -r uri; do
+            [ -z "$uri" ] && continue
+            curl -s "http://localhost:${ARIA2_PORT:-6800}/jsonrpc" \
+                -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"aria2.addUri\",\"params\":[\"token:$ARIA2_SECRET\",[\"$uri\"]]}" > /dev/null \
+                && echo "↻ Dilanjutkan: ${uri:0:80}"
+        done < "$BOT_DIR/pending_magnets.txt"
+        mv "$BOT_DIR/pending_magnets.txt" "$BOT_DIR/pending_magnets.done"
+    fi
 fi
 
 # Auto-detect port bebas mulai dari FILE_SERVER_PORT
