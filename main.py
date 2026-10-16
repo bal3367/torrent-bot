@@ -188,17 +188,56 @@ def _meta_line(d) -> str:
     return f"🔍 Mengambil info torrent… ({peers} peer)\n  hash {h}…"
 
 
-def _ps_download(url: str, name: str) -> str:
-    """Satu baris PowerShell siap paste: download lewat link CF pakai curl.exe bawaan Windows 10/11.
+_DL_TEMPLATE = (BOT_DIR / "dl_template.ps1")
+_DL_SCRIPT_DIR = BOT_DIR / "dlscripts"
 
-    Tidak perlu SSH key / port / user. -C - melanjutkan download yang putus (jalankan ulang
-    command yang sama), --retry mencoba lagi kalau koneksi drop. Kosong kalau tunnel belum ada.
+
+def _direct_base_url() -> str | None:
+    """Link langsung ke file server tanpa Cloudflare (kecepatan penuh VPS), kalau port-nya terbuka ke luar:
+    DIRECT_BASE_URL di .env, atau otomatis di Vast.ai (VAST_TCP_PORT_<port> + PUBLIC_IPADDR)."""
+    manual = (os.getenv("DIRECT_BASE_URL") or "").strip().rstrip("/")
+    if manual:
+        return manual
+    ext = os.getenv(f"VAST_TCP_PORT_{FILE_SERVER_PORT}")
+    ip = os.getenv("PUBLIC_IPADDR") or VPS_IP
+    return f"http://{ip}:{ext}" if ext and ip else None
+
+
+def _ps_download(url: str, name: str) -> str:
+    """Satu baris PowerShell siap paste: ambil skrip download dari VPS ini lalu jalankan.
+
+    Skrip (dl_template.ps1) memakai link langsung ke VPS kalau ada, baru Cloudflare; file besar dipecah
+    jadi 16 bagian paralel (batas kecepatan Cloudflare per koneksi) lalu digabung; paste lagi = lanjut.
+    Kosong kalau tunnel belum ada (skrip diambil lewat link yang sama).
     """
-    if not url.startswith("https://"):
+    import base64
+    import hashlib
+    import urllib.parse
+    base = tun.current_url()
+    if not base or not url.startswith("https://"):
         return ""
-    safe = "".join(c for c in name if c not in '"`$')
-    cmd = f'curl.exe -fL -C - --retry 5 -o "$env:USERPROFILE\\Downloads\\{safe}" "{url}"'
-    return f"\n\n💻 *PowerShell* (tap untuk copy → paste → Enter):\n{_code(cmd)}"
+    path = Path(DOWNLOAD_DIR) / name
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    quoted = urllib.parse.quote(name)
+    cands = [u for u in ((_direct_base_url() and f"{_direct_base_url()}/{quoted}"), url) if u]
+    script = (_DL_TEMPLATE.read_text(encoding="utf-8")
+              .replace("__NAME_B64__", base64.b64encode(name.encode("utf-8")).decode())
+              .replace("__SIZE__", str(size))
+              .replace("__URLS__", ", ".join("'" + u.replace("'", "''") + "'" for u in cands))
+              .replace("__PARTS__", "16"))
+    sid = hashlib.sha1(f"{name}|{size}".encode()).hexdigest()[:16] + ".txt"
+    try:
+        _DL_SCRIPT_DIR.mkdir(exist_ok=True)
+        (_DL_SCRIPT_DIR / sid).write_text(script, encoding="ascii", errors="replace")
+    except OSError as e:
+        logger.error(f"[ps_download] gagal tulis skrip: {e}")
+        return ""
+    cmd = f"[Net.ServicePointManager]::SecurityProtocol='Tls12'; irm {base}/_dl/{sid} | iex"
+    return (f"\n\n💻 *PowerShell — download cepat* (tap untuk copy → paste → Enter):\n{_code(cmd)}"
+            f"\n_Putus? Paste command yang sama lagi, lanjut dari terakhir._")
 
 
 def _dir_stats(path: Path) -> tuple[int, int]:

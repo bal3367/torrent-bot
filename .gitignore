@@ -9,3 +9,4 @@ servers.json
 aria2.session
 pending_magnets.txt
 pending_magnets.done
+dlscripts/
