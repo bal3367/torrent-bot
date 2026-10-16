@@ -140,6 +140,19 @@ def _link(url: str, label: str = "⬇ Klik untuk download") -> str:
     return f"[{label}]({url})"
 
 
+def _is_meta(d) -> bool:
+    """Tahap awal magnet: aria2 masih mengambil info torrent (nama/ukuran) dari peer."""
+    return (d.name or "").startswith("[METADATA]")
+
+
+def _meta_line(d) -> str:
+    """Baris list untuk magnet yang belum dapat info torrent — dulu disembunyikan, jadi list
+    bilang "Tidak ada download aktif" padahal aria2 sedang bekerja."""
+    peers = getattr(d, "connections", 0) or 0
+    h = (d.name or "")[len("[METADATA]"):][:12]
+    return f"🔍 Mengambil info torrent… ({peers} peer)\n  hash {h}…"
+
+
 def _dir_stats(path: Path) -> tuple[int, int]:
     """(jumlah file, total bytes) rekursif — aman kalau ada file yang hilang
     di tengah jalan karena masih didownload aria2."""
@@ -286,7 +299,7 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif action == "list":
         downloads = a2.list_downloads()
-        active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
+        active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
         if not active:
             await query.edit_message_text(
                 "Tidak ada download aktif.",
@@ -301,7 +314,7 @@ async def cb_mainmenu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             done = a2.format_size(d.completed_length)
             total = a2.format_size(d.total_length) if d.total_length else "?"
             speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
-            lines.append(f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
+            lines.append(_meta_line(d) if _is_meta(d) else f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
             buttons.append([
                 InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
                 InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
@@ -370,7 +383,7 @@ async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Refresh list setelah aksi
     downloads = a2.list_downloads()
-    active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
+    active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
     if not active:
         await query.edit_message_text(
             "Tidak ada download aktif.",
@@ -385,7 +398,7 @@ async def cb_dlaction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         done = a2.format_size(d.completed_length)
         total = a2.format_size(d.total_length) if d.total_length else "?"
         speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
-        lines.append(f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
+        lines.append(_meta_line(d) if _is_meta(d) else f"{name}\n  {done} / {total} ({pct:.1f}%) | {speed}")
         buttons.append([
             InlineKeyboardButton("⏸", callback_data=f"dlaction:pause:{d.gid}"),
             InlineKeyboardButton("▶", callback_data=f"dlaction:resume:{d.gid}"),
@@ -433,7 +446,7 @@ async def handle_document(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 @auth
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     downloads = a2.list_downloads()
-    active = [d for d in downloads if d.status in ("active", "waiting", "paused") and not (d.name or "").startswith("[METADATA]")]
+    active = [d for d in downloads if d.status in ("active", "waiting", "paused")]
     if not active:
         await update.message.reply_text("Tidak ada download aktif.")
         return
@@ -444,7 +457,7 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         done = a2.format_size(d.completed_length)
         total = a2.format_size(d.total_length) if d.total_length else "?"
         speed = a2.format_speed(d.download_speed) if d.status == "active" else f"⏸ {d.status}"
-        lines.append(f"{name}\n  GID: {d.gid}\n  {done} / {total} ({pct:.1f}%) | {speed}")
+        lines.append(_meta_line(d) + f"\n  GID: {d.gid}" if _is_meta(d) else f"{name}\n  GID: {d.gid}\n  {done} / {total} ({pct:.1f}%) | {speed}")
     await update.message.reply_text("\n\n".join(lines))
 
 
