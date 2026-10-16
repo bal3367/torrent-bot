@@ -122,12 +122,11 @@ start_fileserver() {
     set_env_key AUTO_DIRECT_BASE_URL "$AUTO_DIRECT_BASE_URL"
     local p="$FILE_SERVER_PORT"
     while port_busy "$p"; do echo "Port $p dipakai proses lain, coba $((p+1))..."; p=$((p + 1)); done
-    if [ "$p" != "$FILE_SERVER_PORT" ]; then
-        sed -i "s/^FILE_SERVER_PORT=.*/FILE_SERVER_PORT=$p/" .env
-        grep -q "^FILE_SERVER_PORT=" .env || echo "FILE_SERVER_PORT=$p" >> .env
-        FILE_SERVER_PORT=$p; export FILE_SERVER_PORT
-        echo "FILE_SERVER_PORT diubah ke $p"
-    fi
+    # Selalu tulis ke .env: tunnel (start_tunnel.sh) dan watchdog membaca port dari .env. Dulu cuma ditulis
+    # kalau berubah di loop ini, jadi port pilihan pick_open_port tidak pernah masuk .env → tunnel &
+    # watchdog menunjuk port lama, watchdog terus me-restart file server yang sebenarnya sehat.
+    FILE_SERVER_PORT=$p; export FILE_SERVER_PORT
+    set_env_key FILE_SERVER_PORT "$p"
     screen -dmS torrent_fileserver bash -c "$PY_RUN file_server.py 2>&1 | tee -a fileserver.log"
     echo "File server berjalan di screen 'torrent_fileserver' (port $FILE_SERVER_PORT)."
 }
