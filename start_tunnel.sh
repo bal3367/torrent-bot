@@ -14,7 +14,10 @@ URL_FILE="$(pwd)/tunnel_url.txt"
 while true; do
     rm -f "$URL_FILE"
     echo "[tunnel] $(date '+%F %T') Starting cloudflared → localhost:$PORT"
-    cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate 2>&1 | while IFS= read -r line; do
+    # --protocol http2: default QUIC pakai UDP 7844, yang diblokir di banyak container/VPS (Vast.ai:
+    # "Failed to dial a quic connection ... egress UDP to port 7844 blocked") — tunnel tidak pernah
+    # tersambung dan semua link kena Error 1033. HTTP/2 lewat TCP jalan di mana-mana.
+    cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate --protocol http2 2>&1 | while IFS= read -r line; do
         echo "$line"
         # Tangkap URL trycloudflare.com dan simpan ke file
         if echo "$line" | grep -qo 'https://[a-z0-9-]*\.trycloudflare\.com'; then
