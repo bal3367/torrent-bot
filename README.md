@@ -79,3 +79,14 @@ Semua otomatis — path relatif ke folder bot, IP publik & user dideteksi sendir
 - **bot** mati → start ulang (kecuali sengaja berhenti karena bot yang sama aktif di VPS lain)
 
 Setiap perbaikan dilaporkan ke Telegram.
+
+## 🚀 Download kecepatan penuh (tanpa Cloudflare)
+
+Link Cloudflare (`trycloudflare.com`) dibatasi kecepatannya. Kalau VPS punya port yang terbuka ke internet,
+bot otomatis memakai link langsung `http://IP:port`:
+
+- **Vast.ai:** `start.sh` membaca `VAST_TCP_PORT_*` + `PUBLIC_IPADDR`, memilih port terbuka yang masih kosong
+  untuk file server, dan menulis `AUTO_DIRECT_BASE_URL` di `.env`. Belum ada port terbuka? Edit template
+  instance → *Docker options* tambah mis. `-p 8000:8000` → buat instance baru dari template itu.
+- **VPS biasa:** buka port `FILE_SERVER_PORT` di firewall, lalu isi `DIRECT_BASE_URL=http://IP:PORT` di `.env`.
+

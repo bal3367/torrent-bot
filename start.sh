@@ -82,6 +82,35 @@ start_aria2() {
     fi
 }
 
+# ── Port yang dibuka ke internet (Vast.ai dll.) → link download langsung tanpa Cloudflare ──
+# Vast.ai memberi VAST_TCP_PORT_<port dalam>=<port luar> + PUBLIC_IPADDR (di env container; sesi SSH
+# kadang tidak membawanya, jadi /proc/1/environ juga dibaca). Port dalam pertama yang terbuka dan masih
+# kosong dipakai untuk file server, dan AUTO_DIRECT_BASE_URL=http://IP:port_luar ditulis ke .env.
+# DIRECT_BASE_URL yang diisi manual di .env selalu menang.
+set_env_key() {  # set_env_key KEY VALUE → tulis/ganti di .env
+    if grep -q "^$1=" .env; then sed -i "s#^$1=.*#$1=$2#" .env; else echo "$1=$2" >> .env; fi
+}
+host_env() { { env; tr '\0' '\n' < /proc/1/environ 2>/dev/null; } | grep -E '^(VAST_TCP_PORT_[0-9]+|PUBLIC_IPADDR)=' | sort -u; }
+pick_open_port() {
+    AUTO_DIRECT_BASE_URL=""
+    [ -n "$DIRECT_BASE_URL" ] && return  # diatur manual di .env
+    local pub; pub=$(host_env | sed -n 's/^PUBLIC_IPADDR=//p' | head -1)
+    [ -z "$pub" ] && return
+    local line int ext
+    for line in $(host_env | grep '^VAST_TCP_PORT_'); do
+        int=${line#VAST_TCP_PORT_}; int=${int%%=*}; ext=${line#*=}
+        case "$int" in 22|"$ARIA2_PORT") continue ;; esac
+        if ! port_busy "$int"; then
+            FILE_SERVER_PORT=$int
+            AUTO_DIRECT_BASE_URL="http://$pub:$ext"
+            echo "Port terbuka ke internet: $int → $AUTO_DIRECT_BASE_URL (link langsung, tanpa Cloudflare)"
+            return
+        fi
+        echo "Port terbuka $int sedang dipakai proses lain, lewati."
+    done
+    echo "⚠️  Tidak ada port terbuka yang kosong — download lewat Cloudflare saja (lihat README: buka port di Vast.ai)."
+}
+
 # ── File server ────────────────────────────────────────────────────────────
 start_fileserver() {
     screen -S torrent_fileserver -X quit 2>/dev/null || true
@@ -89,6 +118,8 @@ start_fileserver() {
     sleep 1
     # Port bebas dicari SETELAH file server lama mati — dulu dicek sebelumnya, jadi port file server
     # sendiri dianggap "dipakai" dan naik satu tiap restart (8080 → 8081 → …).
+    pick_open_port
+    set_env_key AUTO_DIRECT_BASE_URL "$AUTO_DIRECT_BASE_URL"
     local p="$FILE_SERVER_PORT"
     while port_busy "$p"; do echo "Port $p dipakai proses lain, coba $((p+1))..."; p=$((p + 1)); done
     if [ "$p" != "$FILE_SERVER_PORT" ]; then

@@ -195,9 +195,9 @@ _DL_SCRIPT_DIR = BOT_DIR / "dlscripts"
 def _direct_base_url() -> str | None:
     """Link langsung ke file server tanpa Cloudflare (kecepatan penuh VPS), kalau port-nya terbuka ke luar:
     DIRECT_BASE_URL di .env, atau otomatis di Vast.ai (VAST_TCP_PORT_<port> + PUBLIC_IPADDR)."""
-    manual = (os.getenv("DIRECT_BASE_URL") or "").strip().rstrip("/")
+    manual = (os.getenv("DIRECT_BASE_URL") or os.getenv("AUTO_DIRECT_BASE_URL") or "").strip().rstrip("/")
     if manual:
-        return manual
+        return manual  # AUTO_ = ditulis start.sh dari port Vast.ai yang terbuka
     ext = os.getenv(f"VAST_TCP_PORT_{FILE_SERVER_PORT}")
     ip = os.getenv("PUBLIC_IPADDR") or VPS_IP
     return f"http://{ip}:{ext}" if ext and ip else None
