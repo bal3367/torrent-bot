@@ -15,6 +15,11 @@ set -a; source .env; set +a
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-$BOT_DIR/downloads}"
 ARIA2_PORT="${ARIA2_PORT:-6800}"
 FILE_SERVER_PORT="${FILE_SERVER_PORT:-8080}"
+# Port tidak valid di .env (mis. 72299 dari percobaan lama) = file server tidak bisa jalan sama sekali.
+if ! [[ "$FILE_SERVER_PORT" =~ ^[0-9]+$ ]] || [ "$FILE_SERVER_PORT" -lt 1 ] || [ "$FILE_SERVER_PORT" -gt 65535 ]; then
+    echo "FILE_SERVER_PORT=$FILE_SERVER_PORT tidak valid → pakai 8080"
+    FILE_SERVER_PORT=8080
+fi
 export DOWNLOAD_DIR ARIA2_PORT FILE_SERVER_PORT
 mkdir -p "$DOWNLOAD_DIR"
 
@@ -109,7 +114,7 @@ pick_open_port() {
             echo "Port terbuka ke internet: $int → $AUTO_DIRECT_BASE_URL (link langsung, tanpa Cloudflare)"
             return
         fi
-        echo "Port terbuka $int sedang dipakai proses lain, lewati."
+        echo "Port terbuka $int (luar $ext) sedang dipakai: $( (ss -tlnp 2>/dev/null | grep ":$int " | grep -o 'users:(([^)]*' | head -1) || echo '?')"
     done
     echo "⚠️  Tidak ada port terbuka yang kosong — download lewat Cloudflare saja (lihat README: buka port di Vast.ai)."
 }
