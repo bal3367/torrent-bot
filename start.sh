@@ -40,6 +40,9 @@ ARIA2_SESSION="$BOT_DIR/aria2.session"
 BT_TRACKERS_HTTP="http://tracker.opentrackr.org:1337/announce,https://tracker.gbitt.info:443/announce,http://tracker.bt4g.com:2095/announce,http://open.acgnxtracker.com:80/announce,https://tracker.lilithraws.org:443/announce,http://tracker.files.fm:6969/announce,https://trackers.mlsub.net:443/announce,http://bt.okmp3.ru:2710/announce,https://tracker.tamersunion.org:443/announce"
 BT_TRACKERS_UDP="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://explodie.org:6969/announce"
 
+# --bt-save-metadata + --bt-load-saved-metadata: info torrent dari magnet disimpan sebagai <hash>.torrent di
+# folder download dan dipakai lagi setelah restart — tanpa ini magnet di sesi harus ambil info dari peer lagi
+# (lama di server tanpa port masuk) dan download-nya dapat GID baru.
 # --bt-tracker-interval=60: tanpa port masuk (container/VPS di balik NAT) cuma ±5-10% peer yang bisa
 # disambung dari sini (diukur: 2 dari 40). Interval bawaan tracker 30-60 menit = 50 peer sekali lalu diam;
 # minta tiap 60 detik = tiap kali dapat peer acak baru, jadi peer yang bisa dipakai terkumpul cepat.
@@ -103,6 +106,8 @@ start_aria2() {
         --bt-tracker-connect-timeout=10 \
         --bt-tracker-timeout=15 \
         --bt-tracker-interval=60 \
+        --bt-save-metadata=true \
+        --bt-load-saved-metadata=true \
         --enable-peer-exchange=true \
         --bt-max-peers=100 \
         --seed-time=0 \
