@@ -184,8 +184,9 @@ def _meta_line(d) -> str:
     """Baris list untuk magnet yang belum dapat info torrent — dulu disembunyikan, jadi list
     bilang "Tidak ada download aktif" padahal aria2 sedang bekerja."""
     peers = getattr(d, "connections", 0) or 0
-    h = (d.name or "")[len("[METADATA]"):][:12]
-    return f"🔍 Mengambil info torrent… ({peers} peer)\n  hash {h}…"
+    label = (d.name or "")[len("[METADATA]"):].replace("+", " ")[:30]
+    hint = "\n  ⚠️ belum ada peer — tracker/DHT tidak terjangkau atau torrent sepi" if not peers else ""
+    return f"🔍 Mengambil info torrent… ({peers} peer)\n  {label}…{hint}"
 
 
 _DL_TEMPLATE = (BOT_DIR / "dl_template.ps1")

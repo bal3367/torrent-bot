@@ -35,7 +35,9 @@ port_busy() {
 # - Log level notice di folder bot (tanpa --log-level aria2 menulis DEBUG; --daemon pindah ke /).
 # - DHT entry point + tracker cadangan: aria2 tidak punya bootstrap DHT bawaan.
 ARIA2_SESSION="$BOT_DIR/aria2.session"
-BT_TRACKERS="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://tracker.openbittorrent.com:6969/announce,udp://explodie.org:6969/announce,http://tracker.opentrackr.org:1337/announce"
+# HTTP/HTTPS (TCP) dulu: banyak container/VPS (Vast.ai) memblokir UDP keluar, jadi DHT dan tracker udp://
+# mati di sana — tanpa tracker TCP, magnet tanpa tracker bawaan dapat 0 peer.
+BT_TRACKERS="http://tracker.opentrackr.org:1337/announce,https://tracker.gbitt.info:443/announce,http://tracker.bt4g.com:2095/announce,http://open.acgnxtracker.com:80/announce,https://tracker.lilithraws.org:443/announce,http://tracker.files.fm:6969/announce,https://trackers.mlsub.net:443/announce,http://bt.okmp3.ru:2710/announce,https://tracker.tamersunion.org:443/announce,udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://explodie.org:6969/announce"
 start_aria2() {
     if pgrep -x aria2c > /dev/null; then
         pkill -x aria2c   # SIGTERM: aria2 menulis sesinya dulu sebelum keluar

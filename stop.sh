@@ -44,10 +44,13 @@ for r in res:
     for d in r.get("result") or []:
         h = d.get("infoHash")
         if h:
-            name = ((d.get("bittorrent") or {}).get("info") or {}).get("name", "")
-            if name.startswith("[METADATA]"):
-                continue
-            print("magnet:?xt=urn:btih:" + h + ("&dn=" + urllib.parse.quote(name) if name else ""))
+            bt = d.get("bittorrent") or {}
+            name = (bt.get("info") or {}).get("name", "")
+            # Tracker torrent ikut disimpan: tanpa itu magnet hasil restart cuma punya hash + nama dan
+            # di server yang memblokir UDP (DHT mati) dapat 0 peer selamanya.
+            trs = [t for tier in (bt.get("announceList") or []) for t in tier]
+            print("magnet:?xt=urn:btih:" + h + ("&dn=" + urllib.parse.quote(name) if name else "")
+                  + "".join("&tr=" + urllib.parse.quote(t, safe="") for t in dict.fromkeys(trs)))
         else:
             uris = [u["uri"] for f in d.get("files") or [] for u in f.get("uris") or []]
             if uris:
