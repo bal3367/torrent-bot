@@ -99,6 +99,9 @@ pick_open_port() {
     local line int ext
     for line in $(host_env | grep '^VAST_TCP_PORT_'); do
         int=${line#VAST_TCP_PORT_}; int=${int%%=*}; ext=${line#*=}
+        # Konvensi Vast.ai: "port" > 65535 (mis. 72299) bukan port sungguhan, artinya port acak yang
+        # nomornya SAMA di dalam & luar container → dengarkan di port luar itu sendiri.
+        [ "$int" -gt 65535 ] 2>/dev/null && int=$ext
         case "$int" in 22|"$ARIA2_PORT") continue ;; esac
         if ! port_busy "$int"; then
             FILE_SERVER_PORT=$int
