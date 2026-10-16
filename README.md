@@ -78,7 +78,7 @@ Semua otomatis — path relatif ke folder bot, IP publik & user dideteksi sendir
 - **link Cloudflare** tidak bisa dibuka 3× berturut-turut → tunnel start ulang, **link baru dikirim ke Telegram**
 - **bot** mati → start ulang (kecuali sengaja berhenti karena bot yang sama aktif di VPS lain)
 
-Setiap perbaikan dilaporkan ke Telegram.
+Perbaikan dicatat di `watchdog.log` (pesan Telegram per perbaikan: `WATCHDOG_NOTIFY=1`). Link Cloudflare baru tetap dikirim ke Telegram.
 
 ## 🚀 Download kecepatan penuh (tanpa Cloudflare)
 

@@ -21,7 +21,22 @@ tg() {
         --data-urlencode "chat_id=$ALLOWED_CHAT_ID" --data-urlencode "text=$1" \
         --data-urlencode "disable_web_page_preview=true" > /dev/null || true
 }
-heal() { log "PERBAIKI: $1 — $2"; tg "🛠 Auto-fix ($(hostname)): $1 — $2"; bash start.sh "$1"; }
+# Perbaikan cuma dicatat di watchdog.log (pesan Telegram per auto-fix dimatikan atas permintaan; set
+# WATCHDOG_NOTIFY=1 di .env untuk menyalakannya lagi). Setelah komponen diperbaiki, komponen itu tidak
+# dicek dulu selama COOLDOWN detik, yang naik dua kali lipat tiap perbaikan beruntun (maks 10 menit),
+# supaya masalah yang tidak hilang dengan restart tidak bikin restart terus-menerus.
+declare -A cooldown_until heal_streak
+heal() {
+    local c="$1" now; now=$(date +%s)
+    local streak=$(( ${heal_streak[$c]:-0} + 1 )); heal_streak[$c]=$streak
+    local wait=$(( 60 * (1 << (streak - 1)) )); [ $wait -gt 600 ] && wait=600
+    cooldown_until[$c]=$(( now + wait ))
+    log "PERBAIKI: $c — $2 (perbaikan ke-$streak beruntun, cek lagi dalam ${wait}s)"
+    [ "${WATCHDOG_NOTIFY:-0}" = "1" ] && tg "🛠 Auto-fix ($(hostname)): $c — $2"
+    bash start.sh "$c"
+}
+cooling() { [ "$(date +%s)" -lt "${cooldown_until[$1]:-0}" ]; }
+healthy() { heal_streak[$1]=0; }
 
 tunnel_fails=0
 no_url_since=""
@@ -33,21 +48,26 @@ while true; do
     load_env
 
     # aria2
-    if ! curl -s --max-time 5 "http://127.0.0.1:$ARIA2_PORT/jsonrpc" \
+    if cooling aria2; then :
+    elif ! curl -s --max-time 5 "http://127.0.0.1:$ARIA2_PORT/jsonrpc" \
          -d "{\"jsonrpc\":\"2.0\",\"id\":\"wd\",\"method\":\"aria2.getVersion\",\"params\":[\"token:$ARIA2_SECRET\"]}" | grep -q '"version"'; then
         heal aria2 "RPC aria2 tidak menjawab"
+    else healthy aria2
     fi
 
     # file server
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$FILE_SERVER_PORT/")
-    if [ "$code" != "200" ]; then
-        heal fileserver "port $FILE_SERVER_PORT jawab '$code'"
-        load_env
-        tunnel_fails=0
+    if ! cooling fileserver; then
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$FILE_SERVER_PORT/")
+        if [ "$code" != "200" ]; then
+            heal fileserver "port $FILE_SERVER_PORT jawab '$code'"
+            load_env
+            tunnel_fails=0
+        else healthy fileserver
+        fi
     fi
 
     # tunnel
-    if command -v cloudflared >/dev/null 2>&1; then
+    if command -v cloudflared >/dev/null 2>&1 && ! cooling tunnel; then
         url=$(cat tunnel_url.txt 2>/dev/null)
         if [ -z "$url" ]; then
             [ -z "$no_url_since" ] && no_url_since=$(date +%s)
@@ -59,7 +79,7 @@ while true; do
             no_url_since=""
             pcode=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -I "$url/")
             if [ "$pcode" = "200" ]; then
-                tunnel_fails=0
+                tunnel_fails=0; healthy tunnel
                 if [ "$url" != "$last_url" ]; then
                     [ -n "$last_url" ] && tg "🔗 Link download baru ($(hostname)): $url
 Link lama sudah tidak berlaku — klik ulang file di bot untuk dapat command baru."
@@ -80,12 +100,14 @@ Link lama sudah tidak berlaku — klik ulang file di bot untuk dapat command bar
     # bot — kecuali dia sengaja mengalah ke instance lain dengan token yang sama (Conflict, lihat
     # main.py): menghidupkannya lagi bikin dua server saling rebut terus. `bash start.sh` / `make
     # restart` menghapus penanda itu.
-    if ! pgrep -f "python3 main.py" > /dev/null; then
+    if cooling bot; then :
+    elif ! pgrep -f "python3 main.py" > /dev/null; then
         if [ -f yielded.flag ]; then
             [ -z "$yield_logged" ] && log "bot berhenti karena instance lain aktif (yielded.flag) — tidak di-restart" && yield_logged=1
         else
             heal bot "proses bot mati"
         fi
+    else healthy bot
     fi
 
     sleep "$CHECK_EVERY"
