@@ -40,6 +40,9 @@ ARIA2_SESSION="$BOT_DIR/aria2.session"
 BT_TRACKERS_HTTP="http://tracker.opentrackr.org:1337/announce,https://tracker.gbitt.info:443/announce,http://tracker.bt4g.com:2095/announce,http://open.acgnxtracker.com:80/announce,https://tracker.lilithraws.org:443/announce,http://tracker.files.fm:6969/announce,https://trackers.mlsub.net:443/announce,http://bt.okmp3.ru:2710/announce,https://tracker.tamersunion.org:443/announce"
 BT_TRACKERS_UDP="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://explodie.org:6969/announce"
 
+# --bt-tracker-interval=60: tanpa port masuk (container/VPS di balik NAT) cuma ±5-10% peer yang bisa
+# disambung dari sini (diukur: 2 dari 40). Interval bawaan tracker 30-60 menit = 50 peer sekali lalu diam;
+# minta tiap 60 detik = tiap kali dapat peer acak baru, jadi peer yang bisa dipakai terkumpul cepat.
 # aria2 menghubungi tracker SATU PER SATU dan menunggu timeout tiap tracker mati. Di server yang memblokir
 # UDP keluar (Vast.ai), belasan tracker udp:// di magnet FitGirl masing-masing makan 60 detik → peer baru
 # didapat setelah belasan menit (atau tidak sama sekali). Diuji sungguhan: permintaan "connect" tracker UDP
@@ -99,6 +102,7 @@ start_aria2() {
         --bt-tracker="$BT_TRACKERS" \
         --bt-tracker-connect-timeout=10 \
         --bt-tracker-timeout=15 \
+        --bt-tracker-interval=60 \
         --enable-peer-exchange=true \
         --bt-max-peers=100 \
         --seed-time=0 \
