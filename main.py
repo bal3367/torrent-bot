@@ -1128,7 +1128,10 @@ def main():
     app.add_error_handler(_on_error)
 
     print("Bot started.")
-    app.run_polling(drop_pending_updates=True)
+    # allowed_updates eksplisit: kalau tidak diisi, Telegram memakai setelan TERAKHIR yang pernah dikirim
+    # untuk token ini (oleh program mana pun). Kalau setelan itu cuma "message", klik tombol inline
+    # (callback_query) tidak pernah sampai — pesan biasa jalan, tombol diklik tapi tidak ada apa-apa.
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
