@@ -153,6 +153,19 @@ def _meta_line(d) -> str:
     return f"🔍 Mengambil info torrent… ({peers} peer)\n  hash {h}…"
 
 
+def _ps_download(url: str, name: str) -> str:
+    """Satu baris PowerShell siap paste: download lewat link CF pakai curl.exe bawaan Windows 10/11.
+
+    Tidak perlu SSH key / port / user. -C - melanjutkan download yang putus (jalankan ulang
+    command yang sama), --retry mencoba lagi kalau koneksi drop. Kosong kalau tunnel belum ada.
+    """
+    if not url.startswith("https://"):
+        return ""
+    safe = "".join(c for c in name if c not in '"`$')
+    cmd = f'curl.exe -L -C - --retry 5 -o "$env:USERPROFILE\\Downloads\\{safe}" "{url}"'
+    return f"\n\n💻 *PowerShell* (tap untuk copy → paste → Enter):\n{_code(cmd)}"
+
+
 def _dir_stats(path: Path) -> tuple[int, int]:
     """(jumlah file, total bytes) rekursif — aman kalau ada file yang hilang
     di tengah jalan karena masih didownload aria2."""
@@ -586,7 +599,7 @@ async def cb_fileinfo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Hapus", callback_data=f"confirmdelete:{ref}")],
             [InlineKeyboardButton("← Kembali ke File", callback_data="menu:files")],
         ]
-        info = f"📄 {_code(filename)}\nUkuran: {size}\n🔗 {_code(link)}"
+        info = f"📄 {_code(filename)}\nUkuran: {size}\n🔗 {_code(link)}{_ps_download(link, filename)}"
 
     await query.edit_message_text(
         info,
@@ -639,6 +652,7 @@ async def cb_sendtg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"Ukuran: {a2.format_size(size_bytes)}\n\n"
                 f"🌐 *Download via browser:*\n"
                 f"{_link(link)}"
+                f"{_ps_download(link, filename)}"
             )
         else:
             msg = (
@@ -718,7 +732,7 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
         link = f"{base_url}/{urllib.parse.quote(zip_name)}"
         await query.message.reply_text(
-            f"✅ ZIP sudah ada!\n🌐 {_link(link)}", parse_mode="Markdown"
+            f"✅ ZIP sudah ada!\n🌐 {_link(link)}{_ps_download(link, zip_name)}", parse_mode="Markdown"
         )
         return
 
@@ -744,13 +758,12 @@ async def cb_makezip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     import urllib.parse
     base_url = tun.current_url() or f"http://{VPS_IP}:{FILE_SERVER_PORT}"
     link = f"{base_url}/{urllib.parse.quote(zip_name)}"
-    scp_win = f'scp ubuntu@{VPS_IP}:"{DOWNLOAD_DIR}/{zip_name}" "C:\\Users\\YourName\\Downloads\\"'
     await msg.edit_text(
         f"✅ *ZIP selesai!*\n"
         f"📦 {_code(zip_name)}\n"
         f"Ukuran: {zip_size}\n\n"
-        f"🌐 *Browser (CF Tunnel):*\n{_link(link)}\n\n"
-        f"⚡ *PowerShell (speed penuh):*\n{_code(scp_win)}",
+        f"🌐 *Browser (CF Tunnel):*\n{_link(link)}"
+        f"{_ps_download(link, zip_name)}",
         parse_mode="Markdown",
     )
 
@@ -768,7 +781,7 @@ async def cb_zipready(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     link = f"{base_url}/{urllib.parse.quote(zip_name)}"
     size = a2.format_size(zip_path.stat().st_size) if zip_path.exists() else "?"
     await query.message.reply_text(
-        f"📦 {_code(zip_name)}\nUkuran: {size}\n\n🌐 {_link(link)}",
+        f"📦 {_code(zip_name)}\nUkuran: {size}\n\n🌐 {_link(link)}{_ps_download(link, zip_name)}",
         parse_mode="Markdown",
     )
 
