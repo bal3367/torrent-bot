@@ -37,13 +37,46 @@ port_busy() {
 ARIA2_SESSION="$BOT_DIR/aria2.session"
 # HTTP/HTTPS (TCP) dulu: banyak container/VPS (Vast.ai) memblokir UDP keluar, jadi DHT dan tracker udp://
 # mati di sana — tanpa tracker TCP, magnet tanpa tracker bawaan dapat 0 peer.
-BT_TRACKERS="http://tracker.opentrackr.org:1337/announce,https://tracker.gbitt.info:443/announce,http://tracker.bt4g.com:2095/announce,http://open.acgnxtracker.com:80/announce,https://tracker.lilithraws.org:443/announce,http://tracker.files.fm:6969/announce,https://trackers.mlsub.net:443/announce,http://bt.okmp3.ru:2710/announce,https://tracker.tamersunion.org:443/announce,udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://explodie.org:6969/announce"
+BT_TRACKERS_HTTP="http://tracker.opentrackr.org:1337/announce,https://tracker.gbitt.info:443/announce,http://tracker.bt4g.com:2095/announce,http://open.acgnxtracker.com:80/announce,https://tracker.lilithraws.org:443/announce,http://tracker.files.fm:6969/announce,https://trackers.mlsub.net:443/announce,http://bt.okmp3.ru:2710/announce,https://tracker.tamersunion.org:443/announce"
+BT_TRACKERS_UDP="udp://tracker.opentrackr.org:1337/announce,udp://open.stealth.si:80/announce,udp://tracker.torrent.eu.org:451/announce,udp://exodus.desync.com:6969/announce,udp://open.demonii.com:1337/announce,udp://explodie.org:6969/announce"
+
+# aria2 menghubungi tracker SATU PER SATU dan menunggu timeout tiap tracker mati. Di server yang memblokir
+# UDP keluar (Vast.ai), belasan tracker udp:// di magnet FitGirl masing-masing makan 60 detik → peer baru
+# didapat setelah belasan menit (atau tidak sama sekali). Diuji sungguhan: permintaan "connect" tracker UDP
+# ke opentrackr; tidak ada jawaban = UDP diblokir → buang semua tracker bawaan torrent, pakai daftar HTTP
+# saja, matikan DHT (juga UDP).
+udp_tracker_ok() {
+    python3 - <<'PY' 2>/dev/null
+import random, socket, struct, sys
+for host, port in (("tracker.opentrackr.org", 1337), ("open.stealth.si", 80)):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
+        tid = random.getrandbits(32)
+        s.sendto(struct.pack(">QII", 0x41727101980, 0, tid), (host, port))
+        data, _ = s.recvfrom(64)
+        if len(data) >= 16 and struct.unpack(">II", data[:8]) == (0, tid):
+            sys.exit(0)
+    except Exception:
+        pass
+sys.exit(1)
+PY
+}
 start_aria2() {
     if pgrep -x aria2c > /dev/null; then
         pkill -x aria2c   # SIGTERM: aria2 menulis sesinya dulu sebelum keluar
         for _ in $(seq 1 20); do pgrep -x aria2c > /dev/null || break; sleep 0.5; done
     fi
     touch "$ARIA2_SESSION"
+    local udp_opts=()
+    if udp_tracker_ok; then
+        BT_TRACKERS="$BT_TRACKERS_HTTP,$BT_TRACKERS_UDP"
+        udp_opts=(--enable-dht=true --dht-entry-point=dht.transmissionbt.com:6881)
+        echo "UDP keluar OK — tracker HTTP + UDP + DHT."
+    else
+        BT_TRACKERS="$BT_TRACKERS_HTTP"
+        udp_opts=(--enable-dht=false "--bt-exclude-tracker=*")
+        echo "⚠️  UDP keluar diblokir — cuma tracker HTTP/HTTPS (tracker udp:// bawaan torrent dibuang, DHT mati)."
+    fi
     aria2c \
         --enable-rpc \
         --rpc-listen-all=false \
@@ -62,9 +95,10 @@ start_aria2() {
         --min-split-size=1M \
         --max-concurrent-downloads=5 \
         --bt-enable-lpd=true \
-        --enable-dht=true \
-        --dht-entry-point=dht.transmissionbt.com:6881 \
+        "${udp_opts[@]}" \
         --bt-tracker="$BT_TRACKERS" \
+        --bt-tracker-connect-timeout=10 \
+        --bt-tracker-timeout=15 \
         --enable-peer-exchange=true \
         --bt-max-peers=100 \
         --seed-time=0 \
